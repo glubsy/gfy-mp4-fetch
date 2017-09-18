@@ -46,10 +46,12 @@ def is_first_arg_dir(arg):
 def scan_directory(inDIR):
     """Walks directory and scrape files according to pattern"""
     #unixpattern = '*.webm|*.gif'
-    repattern = r'^([A-Z][a-z]+[^0-9\s\_\-\\\'])+(\.webm|\.gif|\.mp4)$'
+    repattern = r'^([A-Z][a-z]+[^0-9\s\_\-\\\'])+(\.webm|\.gif|\.mp4)$' #TODO: option to ignore already existing mp4s
     #matches strings starting with 1 capital, 1 lowercase, no number or whitespaces
     fileList = []
+    fileIdSet = set()
     count = 0
+    current_file_id = ""
     # Walk through directory
     for dName, sdName, fList in os.walk(inDIR):
         print("path:", dName, sdName, fList)
@@ -58,11 +60,17 @@ def scan_directory(inDIR):
             m = re.match(repattern, fileName)
             #print("m: ", m)
             if m:
-                fileList.append(os.path.join(dName, fileName))
-                count += 1
+                current_file_id = parse_path_line(fileName)[2]
+                #print("current_file_id:", current_file_id)
+                if current_file_id not in fileIdSet: # have not seen this id before, it's not a dupe
+                    fileIdSet.add(parse_path_line(fileName)[2]) # add file id to set
+                    fileList.append(os.path.join(dName, fileName)) # add file path to list
+                    count += 1
             else:
                 print("filename", fileName, "doesn't match.")
+    fileList.sort()
     print("fileList:", fileList)
+    print("fileIdSet:", fileIdSet)
     print("count:", count)
     write_list_to_file(fileList)
 
@@ -76,7 +84,7 @@ def write_list_to_file(thelist):
 
 
 def read_file_listing(file):
-    """Remove dupes""" #FIXME: remove dupes? sort?
+    """Read entire text file for cleanup"""
     #with open("/tmp/gfyfetch_filelist.txt") as file: # Use file to refer to the file object
     #     data = file.read()
 
@@ -84,22 +92,26 @@ def read_file_listing(file):
         data = file_handler.read()
         #print("data read: ", data)
 
-        for line in data.splitlines():
-            #print("line read is:", line)
-            parse_path_line(line)
+        for line in data.splitlines(): #FIXME REMOVE DUPES
+            print("line read is:", line)
+        
+        
+        #TODO: read only the first line to process here! then remove it!
+        #parse_path_line(line)
 
 
 def parse_path_line(theline):
-    """Strips unnecessary extension and path"""
+    """Strips unnecessary extension and path to isolate ID. Returns list of [file_noext, file_dirname, file_id]"""
     # filepath_noext = os.path.split(os.path.splitext(theline)[0])
     file_noext = os.path.splitext(theline)[0]
     file_dirname = os.path.basename(os.path.dirname(theline))
     file_id = os.path.basename(file_noext)
+    file_props = [file_noext, file_dirname, file_id]
     # print("file_noext:", file_noext)
     # print("file_dirname:", file_dirname)
     # print("file_id:", file_id)
-    process_id(file_id)
-
+    return file_props
+    #process_id(file_id)
 
 def process_id(id):
     """Process the current filename"""
@@ -187,6 +199,8 @@ def main():
         read_file_listing(str(arg1))
 
     setup_download_dir()
+    #TODO: recap file listing in stdout and *wait for keypress*
+    #TODO: then fire a while true loop with input() to break it gracefully (finish download + remove filename from text AFTER completion)
 
 main()
 
