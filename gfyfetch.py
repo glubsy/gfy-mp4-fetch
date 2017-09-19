@@ -4,8 +4,10 @@ import subprocess
 #import fnmatch
 #import shutil
 import urllib
-import requests
+import signal
+import time
 import re
+import requests
 from tqdm import tqdm
 #import json
 #from urllib import urlopen
@@ -14,10 +16,12 @@ from gfycat.error import GfycatClientError
 # urllib.request.URLopener.version = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.113 Safari/537.36'
 QUERY_ENDPOINT = 'http://gfycat.com/cajax/get/'
 TMP_FILELIST = '/tmp/gfyfetch_filelist.txt'
+TMP_ERRORLIST = '/tmp/gfyfetch_errorlist.txt'
 GLOBAL_URL_OBJECT = []
 CWD = os.getcwd()
 request_session = requests.Session()
 request_session.headers.update({'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:55.0) Gecko/20100101 Firefox/54.0'})
+global asked_termination
 
 def print_usage():
     """Prints script usage"""
@@ -121,21 +125,60 @@ def read_file_listing(file):
     return False
 
 
+# def signal_handler(signal, frame):
+#         print('You pressed Ctrl+C!')
+#         asked_termination = True
+#         print("asked_termination var is:", asked_termination)
+# signal.signal(signal.SIGINT, signal_handler)
+
+def terminate(e):
+    if asked_termination:
+        print("asked_termination was:", asked_termination, "terminate() bye!")
+        # signal.pause()
+        sys.exit(0)
+
 def loop_through_text_file(file):
     """Main iterating loop"""
+    asked_termination = False
+    while True:
+        if asked_termination:
+            break
+        print("LOOP START: asked_termination is: ", asked_termination)
+        dir_id_pair = read_first_line(file) #retrieve parent_dir/file_id from text list
+        setup_download_dir(dir_id_pair[0]) #create our download directory if doesn't exist FIXME add option to set manually instead of CWD
 
-    dir_id_pair = read_first_line(file) #retrieve parent_dir/file_id from text list
-    setup_download_dir(dir_id_pair[0]) #create our download directory if doesn't exist FIXME add option to set manually instead of CWD
+        print("GLOBAL_URL_OBJECT before:", GLOBAL_URL_OBJECT)
+        GLOBAL_URL_OBJECT.extend(dir_id_pair) #FIXME instead of append/extend, create the list with empty elements and change them by index
+        print("GLOBAL_URL_OBJECT after:", GLOBAL_URL_OBJECT)
 
-    GLOBAL_URL_OBJECT.extend(dir_id_pair) #FIXME instead of append/extend, create the list with empty elements and change them by index
-    
-    if process_id(GLOBAL_URL_OBJECT[0], GLOBAL_URL_OBJECT[1]):
-        remove_first_line(file) #TODO only remove after download succeeds
-    else:
-        print(BColors.FAIL + "Download of " + GLOBAL_URL_OBJECT[1] + "failed! Reason: " + GLOBAL_URL_OBJECT[2] + BColors.ENDC)
+        if process_id(GLOBAL_URL_OBJECT[0], GLOBAL_URL_OBJECT[1]):
+            remove_first_line(file) #TODO only remove after download succeeds
+            del GLOBAL_URL_OBJECT[:]
+            time.sleep(3)
+        else:
+            print(BColors.FAIL + "Download of " + GLOBAL_URL_OBJECT[0] + "/" + GLOBAL_URL_OBJECT[1] + " failed! Reason: " + GLOBAL_URL_OBJECT[2] + BColors.ENDC)
+            write_error_to_file(str(GLOBAL_URL_OBJECT[0] + "/" + GLOBAL_URL_OBJECT[1] + " failed! Reason: " + GLOBAL_URL_OBJECT[2]))
+            del GLOBAL_URL_OBJECT[:]
+            remove_first_line(file)
+            time.sleep(1)
+
+        # signal.pause()
+
+def write_error_to_file(item):
+    """Write file IDs that generated errors to file"""
+    with open(TMP_ERRORLIST, 'a') as file_handler:
+            file_handler.write("%s\n" % item) #file_handler.write("{}\n".format(item))
 
 def read_first_line(file):
     """Only read the first line of file"""
+
+    try:
+        if os.stat(file).st_size == 0:
+            print("End of file listing. Exiting.")
+            exit(0)
+    except OSError as e:
+        print("Read first line error:", e)
+        exit(1)
 
     with open(file, 'r') as file_handler:
         firstline = file_handler.readline()
@@ -152,7 +195,7 @@ def remove_first_line(file):
     if err:
         raise NameError(
             '\n============= WARNING/ERROR ===============\n{}\n===========================================\n'.format(err.rstrip()))
-    return out
+    #return out
 
 
 def parse_path_line(theline):
@@ -278,17 +321,16 @@ def file_downloader(url):
     r = request_session.get(url, headers=headers, stream=True)
     if r.status_code != 200:
         tqdm.write(BColors.FAIL + "Error fetching the URL: " + r.status_code + BColors.ENDC)
-        return
+        return False
     with open(dst, 'wb') as f:
         pbar = tqdm(unit="B", total=int(r.headers['Content-Length']))
         for chunk in r.iter_content(chunk_size=chunkSize):
             if chunk: # filter out keep-alive new chunks
                 pbar.update(len(chunk))
                 f.write(chunk)
-    tqdm.write(BColors.BOLD + "\nDownload completed!" + BColors.ENDC)
-    return dst
-
-
+    tqdm.write(BColors.BOLD + "\nDownload of " + GLOBAL_URL_OBJECT[0] + "/" + GLOBAL_URL_OBJECT[1] + " completed!" + BColors.ENDC)
+    # return dst
+    return True
 
 
 
@@ -323,7 +365,7 @@ def setup_use_dir(direrctory):
 
 def setup_use_file(file):
     """Starts logic to use a supplied file list"""
-    print("Using supplied file list '", file, "' as file listing.")
+    print("Using supplied file list '" + file + "' as file listing.")
     if read_file_listing(file):
         loop_through_text_file(file)
 
@@ -368,10 +410,15 @@ def query_yes_no(question, default="yes"):
         else:
             sys.stdout.write("Please respond with 'yes' or 'no' "
                              "(or 'y' or 'n').\n")
+def on_triggered():
+    print("Terminating!")
+    asked_termination = True
 
 
-def main():
-    """init"""
+if __name__ == "__main__":
+    if os.geteuid() == 0:
+        import keyboard
+        keyboard.add_hotkey('q', on_triggered)
 
     if len(sys.argv) != 2:
         print_usage()
@@ -380,14 +427,12 @@ def main():
 
     if previous_tmp_file_exists():
         if setup_prompt_resume():
-            return
+            pass
 
     if is_first_arg_dir(arg1):
         setup_use_dir(arg1)
     else:
         setup_use_file(arg1)
-
-main()
 
 #TODO: recap file listing in stdout and *wait for keypress*
 #TODO: then fire a while true loop with input() to break it gracefully (finish download + remove filename from text AFTER completion)
