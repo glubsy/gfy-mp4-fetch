@@ -12,8 +12,9 @@ from tqdm import tqdm
 from gfycat.client import GfycatClient
 from gfycat.error import GfycatClientError
 QUERY_ENDPOINT = 'http://gfycat.com/cajax/get/'
-TESTFILEID = 'MixedSplendidIndianspinyloache'
 TMP_FILELIST= '/tmp/gfyfetch_filelist.txt'
+GLOBAL_URL_OBJECT = []
+CWD = os.getcwd()
 
 def print_usage():
     """Prints script usage"""
@@ -118,10 +119,12 @@ def loop_through_text_file(file):
     """main iterating loop"""
 
     dir_id_pair = read_first_line(file)
-    print("mainloop:", dir_id_pair)
-    if process_id(dir_id_pair[0], dir_id_pair[1]):
-        remove_first_line(file) # Only remove after download succeeds TODO
+    setup_download_dir(dir_id_pair[0])
 
+    GLOBAL_URL_OBJECT.append(dir_id_pair[0]) #download_dir #FIXME instead of append, create the list with empty elements and change them by index
+    GLOBAL_URL_OBJECT.append(dir_id_pair[1]) #file_id
+    if process_id(GLOBAL_URL_OBJECT[0], GLOBAL_URL_OBJECT[1]):
+        remove_first_line(file) # Only remove after download succeeds TODO
 
 
 def read_first_line(file):
@@ -163,13 +166,16 @@ def parse_path_line(theline):
 def process_id(download_dir, file_id):
     """Process the current filename"""
 
-    print("process_id(): download_dir file_id", download_dir, file_id)
-    url_object = [] 
-    #url_object[3] = gfycat_client_fetcher(file_id)
-    # if url_object != None:
-    #     file_downloader(url_object)
-    # else:
-    #     pass
+    print("process_id() download_dir:", download_dir, "file_id:", file_id)
+    #GLOBAL_URL_OBJECT: [ "download_dir", "file_id", "fetched_url_mp4" ]
+    GLOBAL_URL_OBJECT.append(gfycat_client_fetcher(file_id))
+
+    generate_dest_filename(GLOBAL_URL_OBJECT[0], GLOBAL_URL_OBJECT[1])
+
+    if GLOBAL_URL_OBJECT[2] != None:
+        file_downloader(GLOBAL_URL_OBJECT[2])
+    else:
+        pass
 
 def gfycat_client_fetcher(arg):
     """Uses the gfycat.client library to fetch JSON, returns mp4Url"""
@@ -215,48 +221,111 @@ class TqdmUpTo(tqdm):
         if int(block * blocksize * 100 / totalsize) == 100:
             print(BColors.BOLD + "Download completed!" + BColors.ENDC) #FIXME: what if no totalsize?
 
-def file_downloader(list):
+
+
+def file_downloader(url):
     """Downloads the file at the url passed."""
-    dst = list[0] + os.path + list[2] + ".mp4" #TODO replace with file_Id and download_dir here
-    # urlretrieve(url, dst)
-    with TqdmUpTo(unit='B', unit_scale=True, miniters=1, desc=list[3].split('/')[-1]) as t:  # all optional kwargs
-        urllib.request.urlretrieve(list[3], filename=dst, reporthook=t.update_to, data=None)
+
+    dst = generate_dest_filename(GLOBAL_URL_OBJECT[0], GLOBAL_URL_OBJECT[1])
+    print("dest: ", dst)
+    with TqdmUpTo(unit='B', unit_scale=True, miniters=1, desc=url.split('/')[-1]) as t:  # all optional kwargs
+        urllib.request.urlretrieve(url, filename=dst, reporthook=t.update_to, data=None)
 
 
-def setup_download_dir():
+
+def generate_dest_filename(download_dir, file_id):
+    """make final filename for file to be written"""
+    try_number = 1
+    download_dest = CWD + os.sep + download_dir + os.sep + file_id + ".mp4"
+
+    while os.path.exists(download_dest):
+        download_dest = CWD + os.sep + download_dir + os.sep + file_id + ("_(%s)" %(try_number)) + ".mp4"
+        try_number += 1
+        if not os.path.exists(download_dest): 
+            # We have finally found an unused filename, we keep it
+            break
+    return download_dest
+
+
+def setup_download_dir(dir):
     """Setup local directory structure for downloads"""
-    cwd = os.getcwd()
-    print("setup_download_dir().cwd:", cwd)
+    if not os.path.exists(CWD + os.sep + dir):
+        os.makedirs(CWD + os.sep + dir)
 
-    #TODO: directory layout creation
+
+def setup_use_dir(dir):
+    """Starts logic to scan supplied dir path"""
+    print("Scanning directory:", dir)
+    scan_directory(dir)
+    if read_file_listing(TMP_FILELIST):
+        loop_through_text_file(TMP_FILELIST)
+
+def setup_use_file(file):
+    """Starts logic to use a supplied file list"""
+    print("Using file list", file, "as file listing.")
+    if read_file_listing(file):
+        loop_through_text_file(file)
+
+def setup_prompt_resume():
+    """Prompts user to resume from existing file in default location"""
+    question = BColors.HEADER + "Warning: a previous file listing is present in " + TMP_FILELIST + "\nWould you like to load listing from it?" + BColors.ENDC
+    if query_yes_no(question):
+        setup_use_file(TMP_FILELIST)
+    else:
+        pass
+
+def previous_tmp_file_exists():
+    """Checks if a previously generated file listing is in default location"""
+    if os.path.exists(TMP_FILELIST):
+        return True
+    return False
+
+def query_yes_no(question, default="yes"):
+    """Ask a yes/no question via raw_input() and return their answer.
+    The "answer" return value is True for "yes" or False for "no".
+    """
+    valid = {"yes": True, "y": True, "ye": True,
+             "no": False, "n": False}
+    if default is None:
+        prompt = " [y/n] "
+    elif default == "yes":
+        prompt = " [Y/n] "
+    elif default == "no":
+        prompt = " [y/N] "
+    else:
+        raise ValueError("invalid default answer: '%s'" % default)
+
+    while True:
+        sys.stdout.write(question + prompt)
+        choice = input().lower()
+        if default is not None and choice == '':
+            return valid[default]
+        elif choice in valid:
+            return valid[choice]
+        else:
+            sys.stdout.write("Please respond with 'yes' or 'no' "
+                             "(or 'y' or 'n').\n")
+
 
 def main():
-    """main loop"""
+    """init"""
 
     if len(sys.argv) != 2:
         print_usage()
     else:
         arg1 = str(sys.argv[1])
 
-    if is_first_arg_dir(arg1):
-        print("Scanning directory:", arg1)
-        scan_directory(arg1)
-        if read_file_listing(TMP_FILELIST):
-            setup_download_dir()
-            loop_through_text_file(TMP_FILELIST)
-    else:
-        print("Using file list", arg1, "as file listing.")
-        if read_file_listing(arg1):
-            setup_download_dir()
-            loop_through_text_file(arg1)
+    if previous_tmp_file_exists():
+        setup_prompt_resume()
 
-    #TODO: recap file listing in stdout and *wait for keypress*
-    #TODO: then fire a while true loop with input() to break it gracefully (finish download + remove filename from text AFTER completion)
+    if is_first_arg_dir(arg1):
+        setup_use_dir(arg1)
+    else:
+        setup_use_file(arg1)
 
 main()
 
+#TODO: recap file listing in stdout and *wait for keypress*
+#TODO: then fire a while true loop with input() to break it gracefully (finish download + remove filename from text AFTER completion)
 #TODO: interruption handling
-
 #TODO: error handling
-
-#TODO: handle when mp4 already exists (rename already existing file as filename_conv.mp4?)
