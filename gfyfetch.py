@@ -25,10 +25,15 @@ GLOBAL_LIST_OBJECT = []
 class Main:
     def __init__(self):
         self.asked_termination = False
+        self.root_user = False
+        signal.signal(signal.SIGINT, self.signal_handler)
 
     def main(self):
         if os.geteuid() == 0:
-            import keyboard
+            self.root_user = True
+            print(BColors.FAIL + "Running as root messes up file ownership, not recommended." + BColors.ENDC)
+            exit(0)
+            import keyboard # This trick only works as root but that sucks so don't do it.
             keyboard.add_hotkey('q', self.on_triggered)
 
         if len(sys.argv) != 2:
@@ -48,16 +53,28 @@ class Main:
     def print_usage(self):
         """Prints script usage"""
 
-        print("  Usage: gfyfetch [DIR|LIST]")
-        print("* change current working directory to the one where files will be downloaded")
-        print("* submit location to scan as [DIR] or a file list text file with full paths [LIST]")
-        exit(1)
+        print('Usage: gfyfetch [DIR|LIST]\n* change current working directory \
+to the one where files will be downloaded\n\
+* submit location to scan as [DIR] or a file list text file with full paths [LIST]\n\
+* run the program as root to be able to pause by pressing \"q\" \
+and resume later (NOT recommended!).\n\
+  Otherwise, run it as normal user (recommended) and press CTRL+C to pause downloads\n\
+* be aware that the file listing submitted will be emptied progressively\
+and deleted once its parsing & downloads are finished!\n\
+* errors will be logged in /tmp/gfyfetch_error.txt by default\n')
+        exit(0)
+
+    def signal_handler(self):
+        # print('You pressed Ctrl+C!:', signal, frame)
+        self.asked_termination = True
+        print(BColors.OKBLUE + "User asked for termination, pausing now.\n" + BColors.ENDC)
+
 
     def on_triggered(self):
-        print("Terminating!")
+        print(BColors.OKBLUE + "Terminating!" + BColors.ENDC)
         self.asked_termination = True
 
-    def terminate(self, e):
+    def terminate(self):
         if self.asked_termination:
             print("asked_termination was:", self.asked_termination, "terminate() bye!")
             # signal.pause()
@@ -65,11 +82,16 @@ class Main:
 
     def loop_through_text_file(self, file):
         """Main iterating loop"""
+
         self.asked_termination = False
+
         while True:
+
             if self.asked_termination:
                 break
+
             print("LOOP START: asked_termination is: ", self.asked_termination)
+
             dir_id_pair = File_Util.read_first_line(self, file) #retrieve parent_dir/file_id from text list
             SetupClass.setup_download_dir(self, dir_id_pair[0]) #create our download directory if doesn't exist FIXME add option to set manually instead of CWD
 
@@ -280,6 +302,7 @@ class File_Util:
 
         try:
             if os.stat(file).st_size == 0:
+                os.remove(file)
                 print("End of file listing. Exiting.")
                 exit(0)
         except OSError as e:
@@ -302,21 +325,6 @@ class File_Util:
             raise NameError(
                 '\n============= WARNING/ERROR ===============\n{}\n===========================================\n'.format(err.rstrip()))
         #return out
-
-
-# def signal_handler(signal, frame):
-#         print('You pressed Ctrl+C!')
-#         asked_termination = True
-#         print("asked_termination var is:", asked_termination)
-# signal.signal(signal.SIGINT, signal_handler)
-
-
-
-
-
-
-
-
 
 
 
