@@ -17,4 +17,6 @@ where DIR is an absolute path to directories holding your gfycraps
 or TXT is an absolute path to a text file listing paths to gfycraps 
 (the script generates such files to resume operations at a later time if needed)
 
-Only tested on Linux!
+Disclaimer:
+It's ugly code, sorry I'm a beginner.
+Only tested on (Arch) Linux.

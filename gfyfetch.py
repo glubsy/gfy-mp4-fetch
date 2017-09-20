@@ -1,39 +1,51 @@
 #!/usr/bin/python3
-import os, os.path, sys
+"""Fetches corresponding mp4 for gfycat webm/gif files found on disk"""
+import os
+import sys
 import subprocess
 #import fnmatch
 #import shutil
-import urllib
+#import urllib
+#from urllib import urlopen
 import signal
 import time
 import re
+# import tty
+# import termios
 import requests
-from tqdm import tqdm
+# import _thread
+
+try:
+    from tqdm import tqdm
+    TQDM_AVAILABLE = True
+except ImportError:
+    TQDM_AVAILABLE = False
 #import json
-#from urllib import urlopen
-from gfycat.client import GfycatClient
-from gfycat.error import GfycatClientError
-# urllib.request.URLopener.version = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.113 Safari/537.36'
+
 QUERY_ENDPOINT = 'http://gfycat.com/cajax/get/'
 TMP_FILELIST = '/tmp/gfyfetch_filelist.txt'
 TMP_ERRORLIST = '/tmp/gfyfetch_errorlist.txt'
 CWD = os.getcwd()
-request_session = requests.Session()
-request_session.headers.update({'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:55.0) Gecko/20100101 Firefox/54.0'})
 GLOBAL_LIST_OBJECT = []
 
 class Main:
+    """Main"""
     def __init__(self):
         self.asked_termination = False
         self.root_user = False
-        signal.signal(signal.SIGINT, self.signal_handler)
+        signal.signal(signal.SIGINT, self.signal_handler) #handle pressing ctrl+c on Linux
+        self.break_now = False
+        self.sigint_again = False
+        self.has_text_listing_been_generated = False
 
     def main(self):
+        """main(), not the best way though"""
         if os.geteuid() == 0:
             self.root_user = True
-            print(BColors.FAIL + "Running as root messes up file ownership, not recommended." + BColors.ENDC)
+            print(BColors.FAIL + "Running as root messes up file ownership, \
+not recommended." + BColors.ENDC)
             exit(0)
-            import keyboard # This trick only works as root but that sucks so don't do it.
+            import keyboard # This trick only works as root, not good
             keyboard.add_hotkey('q', self.on_triggered)
 
         if len(sys.argv) != 2:
@@ -64,19 +76,38 @@ and deleted once its parsing & downloads are finished!\n\
 * errors will be logged in /tmp/gfyfetch_error.txt by default\n')
         exit(0)
 
-    def signal_handler(self):
+    def is_sigint_called_twice(self):
+        """Check if pressing ctrl+c a second time to terminate immediately"""
+        if not self.sigint_again:
+            self.sigint_again = True
+            return False
+        else:
+            FileUtil.write_error_to_file(self, str("Script has been forcefully terminated"))
+            return True
+        return False
+
+    def signal_handler(self, signal, frame):
+        """Handles SIGINT signal, blocks it to terminate gracefully
+        after the current download has finished"""
         # print('You pressed Ctrl+C!:', signal, frame)
+        if self.is_sigint_called_twice():
+            print("\nTerminating script!")
+            sys.exit(0)
+
         self.asked_termination = True
-        print(BColors.OKBLUE + "User asked for termination, pausing now.\n" + BColors.ENDC)
+        print(BColors.OKBLUE + "\nUser asked for soft termination, pausing soon.\n" + BColors.ENDC)
 
 
     def on_triggered(self):
+        """If using keyboard module, pressed q as root"""
         print(BColors.OKBLUE + "Terminating!" + BColors.ENDC)
         self.asked_termination = True
 
     def terminate(self):
+        """Forced termination"""
         if self.asked_termination:
-            print("asked_termination was:", self.asked_termination, "terminate() bye!")
+            print(BColors.FAIL + "Forced terminating script. \
+Watch out for partially downloaded files!" + BColors.ENDC)
             # signal.pause()
             sys.exit(0)
 
@@ -84,35 +115,70 @@ and deleted once its parsing & downloads are finished!\n\
         """Main iterating loop"""
 
         self.asked_termination = False
+        self.sigint_again = False #in case we changed it too early
+        # _thread.start_new_thread(self.waitForKeyPress, ()) #thread capturing keypresses, not work
 
         while True:
+        # while self.break_now is False:
 
             if self.asked_termination:
                 break
 
-            print("LOOP START: asked_termination is: ", self.asked_termination)
+            #print("LOOP START: asked_termination is: ", self.asked_termination)
 
-            dir_id_pair = File_Util.read_first_line(self, file) #retrieve parent_dir/file_id from text list
-            SetupClass.setup_download_dir(self, dir_id_pair[0]) #create our download directory if doesn't exist FIXME add option to set manually instead of CWD
+            # Retrieve parent_dir/file_id from text list
+            dir_id_pair = FileUtil.read_first_line(self, file)
 
-            print("GLOBAL_LIST_OBJECT before:", GLOBAL_LIST_OBJECT)
-            GLOBAL_LIST_OBJECT.extend(dir_id_pair) #FIXME instead of append/extend, create the list with empty elements and change them by index
-            print("GLOBAL_LIST_OBJECT after:", GLOBAL_LIST_OBJECT)
+            # Create our download directory if doesn't exist
+            # FIXME add option to set manually instead of CWD
+            SetupClass.setup_download_dir(self, dir_id_pair[0])
+
+            # print("GLOBAL_LIST_OBJECT before:", GLOBAL_LIST_OBJECT)
+            GLOBAL_LIST_OBJECT.extend(dir_id_pair)                          # FIXME instead of append/extend, create the list with empty elements and change them by indices?
+            # print("GLOBAL_LIST_OBJECT after:", GLOBAL_LIST_OBJECT)
 
             if Downloader.process_id(self, GLOBAL_LIST_OBJECT[0], GLOBAL_LIST_OBJECT[1]):
-                File_Util.remove_first_line(self, file) #TODO only remove after download succeeds
+                FileUtil.remove_first_line(self, file)
                 del GLOBAL_LIST_OBJECT[:]
                 time.sleep(3)
             else:
-                print(BColors.FAIL + "Download of " + GLOBAL_LIST_OBJECT[0] + "/" + GLOBAL_LIST_OBJECT[1] + " failed! Reason: " + GLOBAL_LIST_OBJECT[2] + BColors.ENDC)
-                File_Util.write_error_to_file(self, str(GLOBAL_LIST_OBJECT[0] + "/" + GLOBAL_LIST_OBJECT[1] + " failed! Reason: " + GLOBAL_LIST_OBJECT[2]))
+                print(BColors.FAIL + "Download of " + GLOBAL_LIST_OBJECT[0] + "/" + \
+                GLOBAL_LIST_OBJECT[1] + " failed! Reason: " + GLOBAL_LIST_OBJECT[2] + BColors.ENDC)
+                FileUtil.write_error_to_file(self, str(GLOBAL_LIST_OBJECT[0] + "/" \
+                + GLOBAL_LIST_OBJECT[1] + " failed! Reason: " + GLOBAL_LIST_OBJECT[2]))
                 del GLOBAL_LIST_OBJECT[:]
-                File_Util.remove_first_line(self, file)
+                FileUtil.remove_first_line(self, file)
                 time.sleep(1)
 
             # signal.pause()
 
+    # Testing with thread, but not working well.
+    # def getch(self):
+    #     """Get key press in terminal""" #Only works in actual terminal emulators?
+
+    #     fd = sys.stdin.fileno()
+    #     old_settings = termios.tcgetattr(fd)
+
+    #     try:
+    #         tty.setraw(sys.stdin.fileno())
+    #         ch = sys.stdin.read(1)
+    #     finally:
+    #         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+    #     return ch
+
+    # def waitForKeyPress(self):
+    #     """Catches 'q' key press and changes bool"""
+    #     while True:
+    #         ch = self.getch()
+
+    #         if ch == "q": # Or skip this check and just break
+    #             self.break_now = True
+    #             break
+
+
 class BColors:
+    """Color codes for stdout"""
     HEADER = '\033[95m'
     OKBLUE = '\033[94m'
     OKGREEN = '\033[92m'
@@ -122,59 +188,21 @@ class BColors:
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
 
-class List_Generator:
-    def __init__(self):
-        pass
-
-    def scan_directory(self, inDIR):
-        """Walks directory and scrape files according to pattern"""
-
-        #unixpattern = '*.webm|*.gif'
-        repattern = r'^([A-Z][a-z]+[^0-9\s\_\-\\\'])+(\.webm|\.gif|\.mp4)$' #TODO: option to ignore already existing mp4s
-        #matches strings starting with 1 capital, 1 lowercase, no number or whitespaces
-        fileList = []
-        fileIdSet = set()
-        count = 0
-        dupecount = 0
-        current_file_props = []
-        # Walk through directory
-        for dName, sdName, fList in os.walk(inDIR):
-            #print("path:", dName, sdName, fList)
-            for fileName in fList:
-                #if fnmatch.fnmatch(fileName, unixpattern):
-                m = re.match(repattern, fileName)
-                #print("m: ", m)
-                if m:
-                    current_file_props = File_Util.parse_path_line(self, fileName)
-                    #print("current_file_id:", current_file_id)
-                    if current_file_props[2] not in fileIdSet: # not seen this id before, not a dupe
-                        fileIdSet.add(File_Util.parse_path_line(self, fileName)[2]) # add file id to set
-                        fileList.append(os.path.join(dName, fileName)) # add file path to list
-                        count += 1
-                    else:
-                        dupecount += 1
-                # else:
-                #     print("filename", fileName, "doesn't match.")
-        fileList.sort()
-        # print("fileList:", fileList)
-        # print("fileIdSet:", fileIdSet)
-        print("dupecount:", dupecount)
-        File_Util.write_list_to_file(self, fileList)
-
-
 class SetupClass:
+    """Setting up various things before main loop"""
     def __init__(self):
         pass
 
     def is_first_arg_dir(self, arg):
-        """Scans directory and generates file listing text."""
+        """Checks if first argument is a directory."""
 
         if os.path.isdir(arg):
             return True
         elif os.path.exists(arg):
             return False
         else:
-            print(BColors.WARNING + "Error:", arg + " is not a valid directory or file!" + BColors.ENDC)
+            print(BColors.WARNING + "Error:", arg + \
+            " is not a valid directory or file!" + BColors.ENDC)
             exit(1)
 
     def setup_download_dir(self, directory):
@@ -186,19 +214,20 @@ class SetupClass:
     def setup_use_dir(self, directory):
         """Starts logic to scan supplied dir path"""
         print("Scanning directory:", directory)
-        List_Generator.scan_directory(self, directory)
-        if File_Util.read_file_listing(self, TMP_FILELIST):
+        FileUtil.scan_directory(self, directory)
+        if FileUtil.read_file_listing(self, TMP_FILELIST):
             Main.loop_through_text_file(self, TMP_FILELIST)
 
     def setup_use_file(self, file):
         """Starts logic to use a supplied file list"""
         print("Using supplied file list '" + file + "' as file listing.")
-        if File_Util.read_file_listing(self, file):
+        if FileUtil.read_file_listing(self, file):
             Main.loop_through_text_file(self, file)
 
     def setup_prompt_resume(self):
         """Prompts user to resume from existing file in default location"""
-        question = BColors.HEADER + "Warning: a previous file listing is present in " + TMP_FILELIST + "\nWould you like to load listing from it?" + BColors.ENDC
+        question = BColors.HEADER + "Warning: a previous file listing is present in " \
+        + TMP_FILELIST + "\nWould you like to load listing from it?" + BColors.ENDC
         if SetupClass.query_yes_no(self, question):
             SetupClass.setup_use_file(self, TMP_FILELIST)
             return True
@@ -217,7 +246,7 @@ class SetupClass:
         The "answer" return value is True for "yes" or False for "no".
         """
         valid = {"yes": True, "y": True, "ye": True,
-                "no": False, "n": False}
+                 "no": False, "n": False}
         if default is None:
             prompt = " [y/n] "
         elif default == "yes":
@@ -239,9 +268,47 @@ class SetupClass:
                                  "(or 'y' or 'n').\n")
 
 
-class File_Util:
+class FileUtil:
+    """Various file operations"""
     def __init__(self):
         pass
+
+    def scan_directory(self, inDIR):
+        """Walks directory and scrape files according to pattern that
+        matches strings starting with 1 capital, 1 lowercase, no number or whitespaces"""
+
+        #unixpattern = '*.webm|*.gif'
+        repattern = r'^([A-Z][a-z]+[^0-9\s\_\-\\\'])+(\.webm|\.gif|\.mp4)$'
+        #TODO: option to ignore already existing mp4s if using original directory for downloads
+        file_list = []
+        file_id_set = set()
+        count = 0
+        dupecount = 0
+        current_file_props = []
+        # Walk through directory
+        for dName, sdName, fList in os.walk(inDIR):
+            #print("path:", dName, sdName, fList)
+            for fileName in fList:
+                #if fnmatch.fnmatch(fileName, unixpattern):
+                matches = re.match(repattern, fileName)
+                #print("m: ", m)
+                if matches:
+                    current_file_props = FileUtil.parse_path_line(self, fileName)
+                    #print("current_file_id:", current_file_id)
+                    if current_file_props[2] not in file_id_set: # not seen this id before, no dupe
+                        file_id_set.add(FileUtil.parse_path_line(self, fileName)[2]) # file ID
+                        file_list.append(os.path.join(dName, fileName)) # add file path to list
+                        count += 1
+                    else:
+                        dupecount += 1
+                # else:
+                #     print("filename", fileName, "doesn't match.")
+        file_list.sort()
+        # print("file_list:", file_list)
+        # print("file_id_set:", file_id_set)
+        print("dupecount:", dupecount)
+        FileUtil.write_list_to_file(self, file_list)
+        MAIN_OBJ.has_text_listing_been_generated = True #this is fucking weird, OOP much?
 
     def parse_path_line(self, theline):
         """Strips unnecessary extension and path to isolate ID.
@@ -269,6 +336,9 @@ class File_Util:
     def read_file_listing(self, file):
         """Read entire text file check for dupes"""
 
+        if MAIN_OBJ.has_text_listing_been_generated is True: #this is fucking weird, OOP much?
+            return True
+
         current_file_props = []
         dir_id_pair = []
         dir_id_pair_set = set()
@@ -280,16 +350,15 @@ class File_Util:
 
             for line in data.splitlines():
                 #print("read_file_listing() read line:", line)
-                current_file_props = File_Util.parse_path_line(self, line)
+                current_file_props = FileUtil.parse_path_line(self, line)
                 dir_id_pair = current_file_props[1] + "/" + current_file_props[2]
                 if dir_id_pair not in dir_id_pair_set: # skip if dir/fileid already been seen
                     dir_id_pair_set.add(dir_id_pair)
                     #process_id(current_file_props[1], current_file_props[2])
                     clean_list.append(line)
 
-            File_Util.write_list_to_file(self, clean_list) #rewriting to file
+            FileUtil.write_list_to_file(self, clean_list) #rewriting to file
             return True
-            #TODO: don't call read_file_listing if scan has been done already?
         return False
 
     def write_error_to_file(self, item):
@@ -305,13 +374,13 @@ class File_Util:
                 os.remove(file)
                 print("End of file listing. Exiting.")
                 exit(0)
-        except OSError as e:
-            print("Read first line error:", e)
+        except OSError as err:
+            print("Read first line error:", err)
             exit(1)
 
         with open(file, 'r') as file_handler:
             firstline = file_handler.readline()
-            current_file_props = File_Util.parse_path_line(self, firstline)
+            current_file_props = FileUtil.parse_path_line(self, firstline)
             return [current_file_props[1], current_file_props[2]]
 
 
@@ -319,35 +388,17 @@ class File_Util:
         """Remove the first line from file"""
 
         cmd = ['sed', '-i', '-e', "1d", file]
-        subprocess_call = subprocess.Popen(cmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess_call = subprocess.Popen(cmd, shell=False, \
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         out, err = subprocess_call.communicate()
         if err:
             raise NameError(
-                '\n============= WARNING/ERROR ===============\n{}\n===========================================\n'.format(err.rstrip()))
+                '\n============= WARNING/ERROR ===============\n{}\n\
+===========================================\n'.format(err.rstrip()))
         #return out
 
-
-
-class TqdmUpTo(tqdm):
-    """Provides `update_to(n)` which uses `tqdm.update(delta_n)`."""
-    def update_to(self, block=1, blocksize=1, totalsize=None):
-        """
-        b  : int, optional
-            Number of blocks transferred so far [default: 1].
-        bsize  : int, optional
-            Size of each block (in tqdm units) [default: 1].
-        tsize  : int, optional
-            Total size (in tqdm units). If [default: None] remains unchanged.
-        """
-        if totalsize is not None:
-            self.total = totalsize
-        self.update(block * blocksize - self.n)  # will also set self.n = b * bsize
-
-        # if int(block * blocksize * 100 / totalsize) == 100:
-        #     tqdm.write(BColors.BOLD + "Download completed!" + BColors.ENDC)
-
 class Downloader:
-
+    """Handles actual requests and file writing"""
     def __init__(self):
         pass
 
@@ -370,7 +421,7 @@ class Downloader:
 
     def gfycat_client_fetcher(self, arg):
         """Uses the gfycat.client library to fetch JSON, returns mp4Url"""
-        client = GfycatClient() #TODO: copy over gfycat.client code and spoof UA in requests
+        client = GfycatClient()
 
         try:
             myquery = client.query_gfy(arg) #dict
@@ -385,7 +436,8 @@ class Downloader:
                 GLOBAL_LIST_OBJECT.append(myquery['error'])
                 return False
             else:
-                print(BColors.OKGREEN + "mp4Url value = ", myquery['gfyItem']['mp4Url'], BColors.ENDC)
+                print(BColors.OKGREEN + "mp4Url value = ", \
+                myquery['gfyItem']['mp4Url'], BColors.ENDC)
                 GLOBAL_LIST_OBJECT.append(myquery['gfyItem']['mp4Url'])
                 return True
         except:
@@ -393,57 +445,90 @@ class Downloader:
             return False
         return False
 
-    # def gfycat_fetcher():
+    # def gfycat_fetcher(self, url):
     #     """Standalone fetching of JSON, returns mp4Url"""
-    #     j = urllib.request.urlopen(QUERY_ENDPOINT+TESTFILEID)
+    #     j = urllib.request.urlopen(url)
     #     j_obj = json.load(j)
     #     print("mp4Url value = ", j_obj['gfyItem']['mp4Url'])
     #     return j_obj['gfyItem']['mp4Url']
 
-    def file_downloader2(self, url):
-        """Downloads the file at the url passed."""
+# if TQDM_AVAILABLE:
+#     class TqdmUpTo(tqdm):
+#         """Provides `update_to(n)` which uses `tqdm.update(delta_n)`."""
+#         def update_to(self, block=1, blocksize=1, totalsize=None):
+#             """
+#             b  : int, optional
+#                 Number of blocks transferred so far [default: 1].
+#             bsize  : int, optional
+#                 Size of each block (in tqdm units) [default: 1].
+#             tsize  : int, optional
+#                 Total size (in tqdm units). If [default: None] remains unchanged.
+#             """
+#             if totalsize is not None:
+#                 self.total = totalsize
+#             self.update(block * blocksize - self.n)  # will also set self.n = b * bsize
 
-        # user_agent = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.113 Safari/537.36'
-        # myheaders = {'User-Agent': user_agent}
-        dst = self.generate_dest_filename(GLOBAL_LIST_OBJECT[0], GLOBAL_LIST_OBJECT[1])
+#             # if int(block * blocksize * 100 / totalsize) == 100:
+#             #     tqdm.write(BColors.BOLD + "Download completed!" + BColors.ENDC)
 
-        with TqdmUpTo(unit='B', unit_scale=True, miniters=1, desc=url.split('/')[-1]) as t:  # all optional kwargs
-            local_filename, headers = urllib.request.urlretrieve(url, filename=dst, reporthook=t.update_to, data=None)
+    # def file_downloader2(self, url): #now obsolete
+    #     """Downloads the file at the url passed."""
 
-        print("contentlength: ", headers['Content-Length'])
-        checkfile = open(local_filename)
-        if checkfile:
-            tqdm.write(BColors.BOLD + "Download completed!" + BColors.ENDC)
-        checkfile.close()
+    #     dst = self.generate_dest_filename(GLOBAL_LIST_OBJECT[0], GLOBAL_LIST_OBJECT[1])
 
-        if os.path.exists(local_filename):
-            return True
-        else:
-            return False
-        return False
+    #     with TqdmUpTo(unit='B', unit_scale=True, miniters=1, \
+    #     desc=url.split('/')[-1]) as t:  # all optional kwargs
+    #         local_filename, headers = urllib.request.urlretrieve(url, \
+    #         filename=dst, reporthook=t.update_to, data=None)
 
+    #     print("contentlength: ", headers['Content-Length'])
+    #     checkfile = open(local_filename)
+    #     if checkfile:
+    #         tqdm.write(BColors.BOLD + "Download completed!" + BColors.ENDC)
+    #     checkfile.close()
+
+    #     if os.path.exists(local_filename):
+    #         return True
+    #     else:
+    #         return False
+    #     return False
 
 
     def file_downloader(self, url):
         """Downloads the file at the url passed."""
         dst = Downloader.generate_dest_filename(self, GLOBAL_LIST_OBJECT[0], GLOBAL_LIST_OBJECT[1])
         print("dst: ", dst)
-        headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.113 Safari/536.36'}
+        headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:55.0) \
+        Gecko/20100101 Firefox/54.0'}
+        request_session = requests.Session()
+        request_session.headers.update({'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; \
+        rv:55.0) Gecko/20100101 Firefox/54.0'})
 
         # url="http://httpbin.org/headers" #for testing
-        chunkSize = 1024
+        chunk_size = 1024
 
-        r = request_session.get(url, headers=headers, stream=True)
-        if r.status_code != 200:
-            tqdm.write(BColors.FAIL + "Error fetching the URL: " + r.status_code + BColors.ENDC)
-            return False
-        with open(dst, 'wb') as f:
-            pbar = tqdm(unit="B", total=int(r.headers['Content-Length']))
-            for chunk in r.iter_content(chunk_size=chunkSize):
+        req = request_session.get(url, headers=headers, stream=True)
+        if req.status_code != 200:
+            if TQDM_AVAILABLE:
+                tqdm.write(BColors.FAIL + "Error fetching the URL: " + \
+                req.status_code + BColors.ENDC)
+                return False
+            else:
+                print(BColors.FAIL + "Error fetching the URL: " + req.status_code + BColors.ENDC)
+                return False
+        with open(dst, 'wb') as file_handler:
+            if TQDM_AVAILABLE:
+                pbar = tqdm(unit="B", total=int(req.headers['Content-Length']))
+            for chunk in req.iter_content(chunk_size=chunk_size):
                 if chunk: # filter out keep-alive new chunks
                     pbar.update(len(chunk))
-                    f.write(chunk)
-        tqdm.write(BColors.BOLD + "\nDownload of " + GLOBAL_LIST_OBJECT[0] + "/" + GLOBAL_LIST_OBJECT[1] + " completed!" + BColors.ENDC)
+                    file_handler.write(chunk)
+        if TQDM_AVAILABLE:
+            tqdm.write(BColors.BOLD + "\nDownload of " + GLOBAL_LIST_OBJECT[0] + \
+            "/" + GLOBAL_LIST_OBJECT[1] + " completed!" + BColors.ENDC)
+        else:
+            print(BColors.BOLD + "\nDownload of " + GLOBAL_LIST_OBJECT[0] + \
+            "/" + GLOBAL_LIST_OBJECT[1] + " completed!" + BColors.ENDC)
         # return dst
         return True
 
@@ -455,7 +540,8 @@ class Downloader:
         download_dest = CWD + os.sep + download_dir + os.sep + file_id + ".mp4"
 
         while os.path.exists(download_dest):
-            download_dest = CWD + os.sep + download_dir + os.sep + file_id + ("_(%s)" %(try_number)) + ".mp4"
+            download_dest = CWD + os.sep + download_dir + os.sep + \
+            file_id + ("_(%s)" %(try_number)) + ".mp4"
             try_number += 1
             if not os.path.exists(download_dest):
                 # We have finally found an unused filename, we keep it
@@ -463,12 +549,39 @@ class Downloader:
         return download_dest
 
 
+class GfycatClient(object):
+    """credits to https://github.com/ankeshanand/py-gfycat/"""
+    def __init__(self):
+        pass
+
+    def query_gfy(self, gfyname):
+        """Query a gfy name for URLs and more information."""
+        request_session = requests.Session()
+        request_session.headers.update({'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; \
+rv:55.0) Gecko/20100101 Firefox/54.0'})
+        req = request_session.get(QUERY_ENDPOINT + gfyname)
+        if req.status_code != 200:
+            raise GfycatClientError('Unable to query for the GIF',
+                                    req.status_code)
+
+        return req.json()
+
+class GfycatClientError(Exception):
+    """credits to https://github.com/ankeshanand/py-gfycat/"""
+    def __init__(self, error_message, status_code=None):
+        self.status_code = status_code
+        self.error_message = error_message
+
+    def __str__(self):
+        if self.status_code:
+            return "(%s) %s" % (self.status_code, self.error_message)
+        else:
+            return self.error_message
 
 if __name__ == "__main__":
-    main_obj = Main()
-    main_obj.main()
+    MAIN_OBJ = Main()
+    MAIN_OBJ.main()
 
+#TODO: add randomized sleep between downloads
 #TODO: recap file listing in stdout and *wait for keypress*
-#TODO: then fire a while true loop with input() to break it gracefully (finish download + remove filename from text AFTER completion)
-#TODO: interruption handling
 #TODO: error handling
