@@ -6,8 +6,8 @@ fetches gfycat servers to see if the file still exist and hasn't been removed,
 downloads the correponding mp4 into a directory with the same name as the gfycrap.
 
 To put it simply:
-* Lists all potential Gfycat files on local disk
-* Fecthes corresponding mp4 file on gfycat servers
+* Lists all gfycat lookalike files (filenames) on local disk
+* Fetches corresponding mp4 file URL on gfycat servers
 * Downloads the file to disk according to the directory layout of local files
 
 Usage:
