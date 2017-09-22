@@ -3,7 +3,8 @@
 import os
 import sys
 import subprocess
-import fnmatch
+# import fnmatch
+import argparse
 import shutil
 #import urllib
 import signal
@@ -33,7 +34,7 @@ CWD_FILELIST = CWD + FILELIST
 CWD_FILELIST = CWD + ERRORLIST
 ORIGINAL_FILELIST = TMP + 'gfyfetch_original_file_list.txt'
 ORIGINAL_FILELIST_SELECTED = TMP + 'gfyfetch_original_file_list_selected.txt'
-GLOBAL_LIST_OBJECT = []
+GLOBAL_LIST_OBJECT = {"parent_dir" : "", "file_id": "", "remnant_size": "", "mp4Url": "", "download_size": "", "error": ""}
 RAND_MIN = 1
 RAND_MAX = 7
 
@@ -65,7 +66,8 @@ class Main:
         self.id_set = set()
 
     def main(self):
-        """main(), not the best way though"""
+        """This is wrong"""
+
         if os.geteuid() == 0:
             self.root_user = True
             print(BColors.FAIL + "Running as root messes up file ownership, \
@@ -80,13 +82,16 @@ not recommended." + BColors.ENDC)
             arg1 = str(sys.argv[1])
 
         if SetupClass.previous_tmp_file_exists(self):
-            if SetupClass.setup_prompt_resume(self):
-                pass
-
-        if SetupClass.is_first_arg_dir(self, arg1):
-            SetupClass.setup_use_dir(self, arg1)
+            if not SetupClass.setup_prompt_resume(self):
+                if SetupClass.is_first_arg_dir(self, arg1):
+                    SetupClass.setup_use_dir(self, arg1)
+                else:
+                    SetupClass.setup_use_file(self, arg1)
         else:
-            SetupClass.setup_use_file(self, arg1)
+            if SetupClass.is_first_arg_dir(self, arg1):
+                SetupClass.setup_use_dir(self, arg1)
+            else:
+                SetupClass.setup_use_file(self, arg1)
 
 
     def is_sigint_called_twice(self):
@@ -94,7 +99,7 @@ not recommended." + BColors.ENDC)
         if not self.sigint_again:
             self.sigint_again = True
             return False
-        FileUtil.write_error_to_file(self, str("Script has been forcefully terminated"))
+        FileUtil.write_string_to_file(self, str("Script has been forcefully terminated"))
         return True
 
 
@@ -125,85 +130,74 @@ Watch out for partially downloaded files!" + BColors.ENDC)
             sys.exit(0)
 
 
-    def final_checks(self, file):
-        """Prompts users for final checks before starting downloads"""
-
-        if MAIN_OBJ.has_text_listing_been_generated:
-            FileUtil.compare_lists_content(self, ORIGINAL_FILELIST, ORIGINAL_FILELIST_SELECTED)
-            if SetupClass.query_yes_no(self, "\nIf this list looks ok, start downloading?"):
-                return True
-            else:
-                pass
-
-        if SetupClass.query_yes_no(self, "Would you like to edit \
-the download queue?", default="no"):
-            if FileUtil.display_list_content(self, file):
-                if SetupClass.query_yes_no(self, "We will now start downloading \
-from the top of the queue."):
-                    return True
-        else:
-            return False
-        return False
-
-
-    def loop_through_text_file(self, file):
-        """Main iterating loop"""
+    def entry_point(self, file):
+        """Final check before loop"""
 
         self.asked_termination = False
         self.sigint_again = False #in case we changed it too early
         # _thread.start_new_thread(self.waitForKeyPress, ()) #thread capturing keypresses, not work
 
-        if self.final_checks(file):
-            pass
+        if MAIN_OBJ.has_text_listing_been_generated:
+            FileUtil.compare_lists_content(self, \
+            ORIGINAL_FILELIST, ORIGINAL_FILELIST_SELECTED)
+
+        if SetupClass.query_yes_no(self, \
+        "Would you like to edit the download queue?", default="no"):
+            FileUtil.display_list_content(self, file)
+
+        if SetupClass.query_yes_no(self, \
+        "We will now start downloading from the top of the queue."):
+            self.loop_through_text_file(file)
         else:
             exit(0)
 
 
-        while True:
+    def loop_through_text_file(self, file):
+        """Main iterating loop"""
+
+        while True: #FIXME while lines still left in txt list file
         # while self.break_now is False:
 
             if self.asked_termination:
                 break
 
-            #print("LOOP START: asked_termination is: ", self.asked_termination)
-
             # Retrieve parent_dir/file_id from text list
-            dir_id_pair = FileUtil.read_first_line(self, file)
-            # print("dir_id_pair:", str(dir_id_pair))
-            if FileUtil.has_id_already_downloaded(self, dir_id_pair[1]):
-                print(BColors.OKBLUE + "Warning: " + dir_id_pair[1] + " has already been downloaded before (other directory).\n" + BColors.ENDC)
+            GLOBAL_LIST_OBJECT['parent_dir'], GLOBAL_LIST_OBJECT['file_id'], \
+            GLOBAL_LIST_OBJECT['remnant_size'] = FileUtil.read_first_line(self, file)
+
+            if FileUtil.has_id_already_downloaded(self, GLOBAL_LIST_OBJECT['file_id']):
+                print(BColors.OKBLUE + "Warning: the ID '" + GLOBAL_LIST_OBJECT['file_id'] + \
+                "' has already been downloaded before (other directory).\n" + BColors.ENDC)
 
             # Create our download directory if doesn't exist
             # FIXME add option to set manually instead of CWD
-            SetupClass.setup_download_dir(self, dir_id_pair[0])
+            SetupClass.setup_download_dir(self, GLOBAL_LIST_OBJECT['parent_dir'])
 
-            # print("GLOBAL_LIST_OBJECT before:", GLOBAL_LIST_OBJECT)
-            GLOBAL_LIST_OBJECT.extend(dir_id_pair)
-            #GLOBAL_LIST_OBJECT: [ "download_dir", "file_id", "recorded_size", "fetched_url_mp4" ]
-            print("GLOBAL_LIST_OBJECT after, length:", GLOBAL_LIST_OBJECT, len(GLOBAL_LIST_OBJECT))
+            # print(BColors.OKGREEN + "DEBUG: GLOBAL_OBJECT_LIST:", \
+            # str(GLOBAL_LIST_OBJECT) + BColors.ENDC)
 
-
-            if len(GLOBAL_LIST_OBJECT) is 3:
-                remnantsize = GLOBAL_LIST_OBJECT[2]
-            else:
-                remnantsize = None
-
-            if Downloader.process_id(self, GLOBAL_LIST_OBJECT[0], GLOBAL_LIST_OBJECT[1], remnantsize ):
-                FileUtil.add_id_to_downloaded_set(self, GLOBAL_LIST_OBJECT[1])
+            if Downloader.process_id(self, GLOBAL_LIST_OBJECT['parent_dir'], \
+            GLOBAL_LIST_OBJECT['file_id'], GLOBAL_LIST_OBJECT['remnant_size']):
+                FileUtil.add_id_to_downloaded_set(self, GLOBAL_LIST_OBJECT['file_id'])
                 FileUtil.remove_first_line(self, file)
-                del GLOBAL_LIST_OBJECT[:]
+                GLOBAL_LIST_OBJECT['error'] = None
+                GLOBAL_LIST_OBJECT['remnant_size'] = None
+                GLOBAL_LIST_OBJECT['download_size'] = None
                 time.sleep(random.uniform(RAND_MIN, RAND_MAX))
             else:
-                print(BColors.FAIL + "Download of " + GLOBAL_LIST_OBJECT[0] + "/" + \
-                GLOBAL_LIST_OBJECT[1] + " failed! Reason: " + GLOBAL_LIST_OBJECT[3] + BColors.ENDC)
-                FileUtil.write_error_to_file(self, str(GLOBAL_LIST_OBJECT[0] + "/" \
-                + GLOBAL_LIST_OBJECT[1] + " failed! Reason: " + GLOBAL_LIST_OBJECT[3]))
+                print(BColors.FAIL + "Download of " + GLOBAL_LIST_OBJECT['parent_dir'] + "/" + \
+                GLOBAL_LIST_OBJECT['file_id'] + " failed! Reason: " + \
+                GLOBAL_LIST_OBJECT['error'] + BColors.ENDC)
+                FileUtil.write_error_to_file(self)
 
-                del GLOBAL_LIST_OBJECT[:]
+                GLOBAL_LIST_OBJECT['error'] = None
+                GLOBAL_LIST_OBJECT['remnant_size'] = None
+                GLOBAL_LIST_OBJECT['download_size'] = None
                 FileUtil.remove_first_line(self, file)
                 time.sleep(random.uniform(RAND_MIN, 2))
 
             # signal.pause()
+        return
 
     # Testing with thread, but not working well.
     # def getch(self):
@@ -259,6 +253,7 @@ class SetupClass:
             " is not a valid directory or file!" + BColors.ENDC)
             exit(1)
 
+
     def setup_download_dir(self, directory):
         """Setup local directory structure for downloads"""
         if not os.path.isdir(CWD + os.sep + directory):
@@ -270,21 +265,28 @@ class SetupClass:
         print("Scanning directory:", directory)
         FileUtil.scan_directory(self, directory)
         if FileUtil.read_file_listing(self, TMP_FILELIST):
-            Main.loop_through_text_file(self, TMP_FILELIST)
+            Main.entry_point(self, TMP_FILELIST)
+        exit(0)
+
 
     def setup_use_file(self, file):
         """Starts logic to use a supplied file list"""
         print("Using supplied file list '" + file + "' as file listing.")
-        if FileUtil.read_file_listing(self, file):
-            Main.loop_through_text_file(self, file)
+
+        if not MAIN_OBJ.has_text_listing_been_generated:
+            #TODO: ignore this function if file matches FILELIST (gfyfetch_filelist.txt)? No need to redo this.
+            FileUtil.read_file_listing(self, file)
+        Main.entry_point(self, file)
+        exit(0)
+
 
     def setup_prompt_resume(self):
-        """Prompts user to resume from existing file in default location"""
+        """Prompts user to resume from existing file in default location
+        returns False if answered no"""
         question = BColors.HEADER + "Warning: a previous file listing is present in " \
         + TMP_FILELIST + "\nWould you like to load listing from it?" + BColors.ENDC
         if SetupClass.query_yes_no(self, question):
             SetupClass.setup_use_file(self, TMP_FILELIST)
-            return True
         return False
 
 
@@ -387,7 +389,7 @@ class FileUtil:
     def parse_path_line(self, theline, splits=True):
         """Strips unnecessary extension and path to isolate ID.
         Returns list of [file_noext, file_dirname, file_id, file_size]
-        file size returned only if splits=yes"""
+        file_size returned only if splits=True"""
 
         # filepath_noext = os.path.split(os.path.splitext(theline)[0])
         file_noext = os.path.splitext(theline)[0]
@@ -403,7 +405,8 @@ class FileUtil:
                         # print("file_noext:", file_noext, "file_dirname:", file_dirname, "file_id", file_id, BColors.OKGREEN, "file_size:", file_size, BColors.ENDC)
                         return [file_noext, file_dirname, file_id, file_size]
         # print("file_noext:", file_noext, "file_dirname:", file_dirname, "file_id", file_id, BColors.ENDC)
-        return [file_noext, file_dirname, file_id]
+        return [file_noext, file_dirname, file_id, None]
+
 
     def write_list_to_file(self, filepath, thelist):
         """Write generated list to file on disk"""
@@ -418,10 +421,6 @@ class FileUtil:
         and rewrite it (like uniq, ignoring extensions)
         in case this one list was not generated by us before"""
 
-        #TODO: ignore this function if file matches FILELIST (gfyfetch_filelist.txt)? No need to redo this.
-        if MAIN_OBJ.has_text_listing_been_generated is True: #this is fucking weird, OOP much?
-            return True
-
         current_file_props = []
         dir_id_pair = []
         dir_id_pair_set = set()
@@ -433,16 +432,15 @@ class FileUtil:
 
             for line in data.splitlines():
                 #print("read_file_listing() read line:", line)
-                current_file_props = FileUtil.parse_path_line(self, line)
+                current_file_props = FileUtil.parse_path_line(self, line, False)
                 dir_id_pair = current_file_props[1] + "/" + current_file_props[2]
                 if dir_id_pair not in dir_id_pair_set: # skip if dir/fileid already been seen
                     dir_id_pair_set.add(dir_id_pair)
                     #process_id(current_file_props[1], current_file_props[2])
                     clean_list.append(line)
 
+            clean_list.sort()
             FileUtil.write_list_to_file(self, file, clean_list) #rewriting to file
-            return True
-        return False
 
 
     def has_id_already_downloaded(self, fileid):
@@ -461,15 +459,27 @@ class FileUtil:
             return False
         return True
 
-    def write_error_to_file(self, item):
+
+    def write_string_to_file(self, string, file=TMP_ERRORLIST):
+        """Write string to file"""
+
+        with open(file, 'a') as file_handler:
+            file_handler.write("%s\n" % string)
+            #file_handler.write("{}\n".format(item))
+
+
+    def write_error_to_file(self, file=TMP_ERRORLIST):
         """Write file IDs that generated errors to file"""
 
-        with open(TMP_ERRORLIST, 'a') as file_handler:
-            file_handler.write("%s\n" % item) #file_handler.write("{}\n".format(item))
-
+        with open(file, 'a') as file_handler:
+            file_handler.write("%s\n" % str(GLOBAL_LIST_OBJECT['parent_dir'] + "/" \
+                + GLOBAL_LIST_OBJECT['file_id'] + " failed! Reason: " \
+                + GLOBAL_LIST_OBJECT['error']))
+            #file_handler.write("{}\n".format(item))
 
     def read_first_line(self, file):
-        """Returns tuple ['parent_dir', 'file_id', 'remnant_mp4_size' ]"""
+        """Returns tuple ['parent_dir', 'file_id', 'remnant_size' ]
+        or ['parent_dir', 'file_id', None ] if no remnant_size found in text list"""
 
         try:
             if os.stat(file).st_size == 0:
@@ -481,8 +491,7 @@ class FileUtil:
             exit(1)
 
         with open(file, 'r') as file_handler:
-            firstline = file_handler.readline()
-            return FileUtil.parse_path_line(self, firstline, True)[1:] #pardir, fileid, size
+            return FileUtil.parse_path_line(self, file_handler.readline(), True)[1:]
 
 
     def remove_first_line(self, file):
@@ -530,31 +539,28 @@ class FileUtil:
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
             print("These are the lines we think are from gfycat.\n\
-In Red are the lines totally ignored, white are the ones we cared about and kept.\n\
+In red are the lines totally ignored, white are the ones we cared about and kept.\n\
 We will ignore duplicate IDs automatically from now on.\n")
             subprocess.run(['diff', '--color=auto', '--left-column', \
             '-ByW', '250', original_list, original_list_filtered])
 
-    def check_dupe_size(self, remnantfilepath, size):
+
+    def check_dupe_size(self, presentfilepath, size):
         """Return True if remnantfilepath is valid
         and the file size is the same as size"""
-        if size is None:
-            return False
-        if os.path.isfile(remnantfilepath):
-            if int(os.path.getsize(remnantfilepath)) == int(size):
+        if os.path.isfile(presentfilepath):
+            if int(os.path.getsize(presentfilepath)) == int(size):
                 return True
         return False
 
+
     def check_remnant_size(self, downloadsize, remnantsize):
-        """Return True if remnant file size is the same as 
+        """Return True if remnant file size is the same as
         the size of the file to be downloaded"""
         if remnantsize is None:
-            print("check_remnant_size() returns False (remnantsize is None)")
             return False
         if remnantsize == downloadsize:
-            print("check_remnant_size() returns True!")
             return True
-        print("check_remnant_size() returns False")
         return False
 
 
@@ -568,37 +574,31 @@ class Downloader:
         in the download_dir, compare size of remnantsize with
         file about to be downloaded, skip if similar"""
 
-        #reminder GLOBAL_LIST_OBJECT: [ "download_dir", "file_id", "recorded_size", "fetched_url_mp4" ] WHY did I do this!?
         if Downloader.json_query_errored(self, Downloader.gfycat_client_fetcher(self, file_id)):
-            print("ERROR DETECTED IN JSON QUERY")
             return False
 
-        if remnantsize is None:
-            downloadsize = GLOBAL_LIST_OBJECT[3]
-        else:
-            downloadsize = GLOBAL_LIST_OBJECT[4]
-
         #FIXME: make destination mutable
-        destination = Downloader.generate_dest_filename(self, GLOBAL_LIST_OBJECT[0], GLOBAL_LIST_OBJECT[1])
+        destination = Downloader.generate_dest_filename(self, \
+        GLOBAL_LIST_OBJECT['parent_dir'], GLOBAL_LIST_OBJECT['file_id'])
 
-        if FileUtil.check_dupe_size(self, str(CWD + os.sep + download_dir + os.sep + file_id + ".mp4"), remnantsize): #FIXME: no default download path
-            print(BColors.WARNING + "Warning: the file about to be downloaded:\n" + destination + \
-            "already exists (same sizes). Skipping." + BColors.ENDC)
+        if FileUtil.check_dupe_size(self, \
+        str(CWD + os.sep + download_dir + os.sep + file_id + ".mp4"), GLOBAL_LIST_OBJECT['download_size']): #FIXME: no default download path
+            print(BColors.WARNING + "Warning: the file about to be downloaded: " + destination + \
+            " already exists (same sizes). Skipping." + BColors.ENDC)
             return True #skipping download
 
-        if FileUtil.check_remnant_size(self, downloadsize, remnantsize):
+        if FileUtil.check_remnant_size(self, \
+        GLOBAL_LIST_OBJECT['download_size'], GLOBAL_LIST_OBJECT['remnant_size']):
             print(BColors.WARNING + "Warning: the file about to be downloaded:\n" + destination + \
-            "\nhas the same size of " + remnantsize + " bytes as the older similar file within the same path. Skipping." + BColors.ENDC)
-            return True #skipping download 
+            "\nhas the same size of " + remnantsize + \
+            " bytes as the older similar file within the same path. Skipping." + BColors.ENDC)
+            return True #skipping download
 
-        if "http" in GLOBAL_LIST_OBJECT[3]:
-            url = GLOBAL_LIST_OBJECT[3]
-        elif "http" in GLOBAL_LIST_OBJECT[2]:
-            url = GLOBAL_LIST_OBJECT[2]
-        else:
-            print(BColors.FAIL + "ERROR: no http in:" + str(GLOBAL_LIST_OBJECT) + BColors.ENDC )
+        if "http" not in GLOBAL_LIST_OBJECT['mp4Url']:
+            print(BColors.FAIL + "ERROR: no http in:" + GLOBAL_LIST_OBJECT['mp4Url'] + BColors.ENDC)
+            return False
 
-        if Downloader.file_downloader(self, url, destination):
+        if Downloader.file_downloader(self, GLOBAL_LIST_OBJECT['mp4Url'], destination):
             return True
         else:
             return False
@@ -623,20 +623,19 @@ class Downloader:
     def json_query_errored(self, myquery):
         """Checks the result of the json query,
         returns True if error found, False if not
-        and appends to that stupid GLOBAL_LIST_OBJECT list"""
+        and appends to that stupid global GLOBAL_LIST_OBJECT dict"""
 
         try:
             if 'error' in myquery:
-                print(BColors.FAIL + "JSON Fetcher Warning:", myquery['error'], BColors.ENDC)
-                GLOBAL_LIST_OBJECT.append(myquery['error'])
-                GLOBAL_LIST_OBJECT.append(myquery['error'])
+                # print(BColors.FAIL + "JSON Fetcher Warning:", myquery['error'], BColors.ENDC)
+                GLOBAL_LIST_OBJECT['error'] = myquery['error']
                 return True
             else:
-                print(BColors.OKGREEN + "mp4Url value = ", \
-                myquery['gfyItem']['mp4Url'], BColors.ENDC)
-                GLOBAL_LIST_OBJECT.append(myquery['gfyItem']['mp4Url'])
-                GLOBAL_LIST_OBJECT.append(myquery['gfyItem']['mp4Size'])
-                print("json_query_errored: GLOBAL_LIST_OBJECT", str(GLOBAL_LIST_OBJECT))
+                print(BColors.OKGREEN + "MP4 URL is:", \
+                myquery['gfyItem']['mp4Url'], "and its size is:", myquery['gfyItem']['mp4Size'], BColors.ENDC)
+
+                GLOBAL_LIST_OBJECT['mp4Url'] = myquery['gfyItem']['mp4Url']
+                GLOBAL_LIST_OBJECT['download_size'] = myquery['gfyItem']['mp4Size']
                 return False
         except:
             print(BColors.FAIL + "JSON Fetcher exception error: " + ValueError + BColors.ENDC)
@@ -723,11 +722,11 @@ class Downloader:
                     pbar.update(len(chunk))
                     file_handler.write(chunk)
         if TQDM_AVAILABLE:
-            tqdm.write(BColors.BOLD + "\nDownload of " + GLOBAL_LIST_OBJECT[0] + \
-            "/" + GLOBAL_LIST_OBJECT[1] + " completed!" + BColors.ENDC)
+            tqdm.write(BColors.BOLD + "\nDownload of " + GLOBAL_LIST_OBJECT['parent_dir'] + \
+            "/" + GLOBAL_LIST_OBJECT['file_id'] + " completed!" + BColors.ENDC)
         else:
-            print(BColors.BOLD + "\nDownload of " + GLOBAL_LIST_OBJECT[0] + \
-            "/" + GLOBAL_LIST_OBJECT[1] + " completed!" + BColors.ENDC)
+            print(BColors.BOLD + "\nDownload of " + GLOBAL_LIST_OBJECT['parent_dir'] + \
+            "/" + GLOBAL_LIST_OBJECT['file_id'] + " completed!" + BColors.ENDC)
         # return destination
         return True
 
@@ -779,13 +778,10 @@ class GfycatClientError(Exception):
         else:
             return self.error_message
 
-if __name__ == "__main__":
+if __name__ == "__main__": #fuck my understanding of OOP
     MAIN_OBJ = Main()
     MAIN_OBJ.main()
 
-#TODO: ignore mp4 files in original directory, in case we're sure they from a previous script run (not recommended, but can happen)
 #TODO: better error handling
 #TODO: add option args
 #TODO: set temp dir, filelisting dir, target dir...
-
-#DOING: write mp4 stat size next to the ID, then on read first line, compare already existing mp4 with recorded size, if same, don't download
