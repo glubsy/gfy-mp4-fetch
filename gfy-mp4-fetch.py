@@ -34,7 +34,8 @@ CWD_FILELIST = CWD + FILELIST
 CWD_FILELIST = CWD + ERRORLIST
 ORIGINAL_FILELIST = TMP + 'gfyfetch_original_file_list.txt'
 ORIGINAL_FILELIST_SELECTED = TMP + 'gfyfetch_original_file_list_selected.txt'
-GLOBAL_LIST_OBJECT = {"parent_dir" : "", "file_id": "", "remnant_size": "", "mp4Url": "", "download_size": "", "error": ""}
+GLOBAL_LIST_OBJECT = {"parent_dir" : "", "file_id": "", \
+"remnant_size": "", "mp4Url": "", "download_size": "", "error": ""}
 RAND_MIN = 1
 RAND_MAX = 7
 
@@ -54,8 +55,9 @@ and deleted once its parsing & downloads are finished!\n\
     exit(0)
 
 
-class Main:
+class Main(object):
     """Main"""
+
     def __init__(self):
         self.asked_termination = False
         self.root_user = False
@@ -155,7 +157,7 @@ Watch out for partially downloaded files!" + BColors.ENDC)
     def loop_through_text_file(self, file):
         """Main iterating loop"""
 
-        while True: #FIXME while lines still left in txt list file
+        while True: #FIXME do while lines still left in txt list file instead
         # while self.break_now is False:
 
             if self.asked_termination:
@@ -275,7 +277,8 @@ class SetupClass:
 
         if not MAIN_OBJ.has_text_listing_been_generated:
             #TODO: ignore this function if file matches FILELIST (gfyfetch_filelist.txt)? No need to redo this.
-            FileUtil.read_file_listing(self, file)
+            if not FileUtil.read_file_listing(self, file):
+                exit(1)
         Main.entry_point(self, file)
         exit(0)
 
@@ -328,12 +331,12 @@ class FileUtil:
     def __init__(self):
         pass
 
-    def scan_directory(self, inDIR):
+    def scan_directory(self, innput_DIR):
         """Walks directory and scrape files according to pattern that
         matches strings starting with 1 capital, 1 lowercase, no number or whitespaces"""
         #we don't consider dupes if same filenames in different directories
         # unixpattern = '*.mp4'
-        repattern = r'^([A-Z][a-z]+[^0-9\s\_\-\\\'])+(\.webm|\.gif|\.mp4)$'
+        repattern = r'^([A-Z][a-z]+[^0-9\s\_\-\\\'])+(\.webm|\.gif|\.mp4)$' #FIXME: afaik 3 caps max!
         file_list = []
         file_id_set = set() #just to check for already seen (dupes)
         count = 0
@@ -342,7 +345,7 @@ class FileUtil:
         original_file_listing = []
         original_file_listing_selected = []
         # Walk through directory
-        for dName, sdName, fList in os.walk(inDIR):
+        for dName, sdName, fList in os.walk(innput_DIR):
             #print("path:", dName, sdName, fList)
             for fileName in fList:
                 current_filepath = os.path.join(dName, fileName)
@@ -379,11 +382,15 @@ class FileUtil:
         file_list.sort()
         original_file_listing.sort()
         original_file_listing_selected.sort()
-        print("Number of duplicate IDs found:", dupecount, "files. Total:", count, "files retained.")
+
+        print("Number of duplicate IDs found:", dupecount, \
+        "files. Total:", count, "files retained.")
+
         FileUtil.write_list_to_file(self, TMP_FILELIST, file_list)
         FileUtil.write_list_to_file(self, ORIGINAL_FILELIST, original_file_listing)
         FileUtil.write_list_to_file(self, ORIGINAL_FILELIST_SELECTED, \
         original_file_listing_selected)
+
         MAIN_OBJ.has_text_listing_been_generated = True #this is fucking weird, OOP much?
 
     def parse_path_line(self, theline, splits=True):
@@ -409,14 +416,47 @@ class FileUtil:
 
 
     def write_list_to_file(self, filepath, thelist):
-        """Write generated list to file on disk"""
+        """Write thelist to filepath on disk
+        returns True if success, False if error"""
 
         with open(filepath, 'w') as file_handler:
             for item in thelist:
                 file_handler.write("%s\n" % item) #file_handler.write("{}\n".format(item))
+        return True
 
 
-    def read_file_listing(self, file): #FiXME: 
+    def check_file_type(self, file):
+        """Uses /usr/bin/file on Linux to check file type
+        returns True if ASCII text, False otherwise
+        if exists=False, don't check if path already exists (for writing)"""
+
+        if not os.path.isfile(file):
+            print(BColors.FAIL + \
+            "Error checking file listing content. File not found."\
+            + BColors.ENDC)
+            return False
+
+        if 'linux' not in str.lower(sys.platform):
+            if '.txt' not in file or not os.path.isfile(file):
+                print('Error: file supplied does not end with \".txt\". Aborting.')
+                return False
+            else:
+                return True #good enough
+
+        cmd = ['file', file]
+        subprocess_call = subprocess.Popen(cmd, shell=False, stdout=subprocess.PIPE)
+        out, err = subprocess_call.communicate()
+        if 'ASCII text' in str(out):
+            return True
+        if err:
+            raise NameError("Error checking file content:{}".format(err.rstrip()))
+        print(BColors.FAIL + \
+            "Error checking file listing content. Make sure it's an ASCII text."\
+            + BColors.ENDC)
+        return False
+
+
+    def read_file_listing(self, file): #FIXME
         """Read entire text file check for duplicates
         and rewrite it (like uniq, ignoring extensions)
         in case this one list was not generated by us before"""
@@ -426,12 +466,14 @@ class FileUtil:
         dir_id_pair_set = set()
         clean_list = []
 
+        if not FileUtil.check_file_type(self, file):
+            return False
+
         with open(file, 'r') as file_handler:
             data = file_handler.read()
             #print("data read: ", data)
 
             for line in data.splitlines():
-                #print("read_file_listing() read line:", line)
                 current_file_props = FileUtil.parse_path_line(self, line, False)
                 dir_id_pair = current_file_props[1] + "/" + current_file_props[2]
                 if dir_id_pair not in dir_id_pair_set: # skip if dir/fileid already been seen
@@ -441,7 +483,7 @@ class FileUtil:
 
             clean_list.sort()
             FileUtil.write_list_to_file(self, file, clean_list) #rewriting to file
-
+        return True
 
     def has_id_already_downloaded(self, fileid):
         """Keep track of already seen IDs
@@ -497,7 +539,7 @@ class FileUtil:
     def remove_first_line(self, file):
         """Remove the first line from file"""
         #FIXME: check if sed exists like below and use call after checking file isfile
-        cmd = ['sed', '-i', '-e', "1d", file]
+        cmd = ['sed', '-i', '-e', '1d', file]
         subprocess_call = subprocess.Popen(cmd, shell=False, \
         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         out, err = subprocess_call.communicate()
@@ -778,7 +820,7 @@ class GfycatClientError(Exception):
         else:
             return self.error_message
 
-if __name__ == "__main__": #fuck my understanding of OOP
+if __name__ == "__main__":
     MAIN_OBJ = Main()
     MAIN_OBJ.main()
 
