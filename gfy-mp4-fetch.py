@@ -24,6 +24,11 @@ except ImportError:
     TQDM_AVAILABLE = False
 #import json
 
+if os.path.exists(str(shutil.which("sed"))):
+    SED_FOUND = True
+else:
+    SED_FOUND = False
+
 QUERY_ENDPOINT = 'http://gfycat.com/cajax/get/'
 TMP = gettempdir() + "/"
 FILELIST = 'gfyfetch_filelist.txt'
@@ -36,6 +41,7 @@ GLOBAL_LIST_OBJECT = {"parent_dir" : "", "file_id": "", \
 "remnant_size": "", "mp4Url": "", "download_size": "", "error": ""}
 
 RAND_MIN = 1
+
 
 class Main():
     """Main"""
@@ -503,6 +509,7 @@ class FileUtil:
             FileUtil.write_list_to_file(self, file, clean_list) #rewriting to file
         return True
 
+
     def has_id_already_downloaded(self, fileid):
         """Keep track of already seen IDs
         return true if so"""
@@ -537,6 +544,7 @@ class FileUtil:
                 + GLOBAL_LIST_OBJECT['error']))
             #file_handler.write("{}\n".format(item))
 
+
     def read_first_line(self, file):
         """Returns tuple ['parent_dir', 'file_id', 'remnant_size' ]
         or ['parent_dir', 'file_id', None ] if no remnant_size found in text list"""
@@ -555,23 +563,31 @@ class FileUtil:
 
 
     def remove_first_line(self, file):
-        """Remove the first line from file"""
-        #FIXME: check if sed exists like below and use call after checking file isfile
-        # or remove first line ourselves
-        cmd = ['sed', '-i', '-e', '1d', file]
-        subprocess_call = subprocess.Popen(cmd, shell=False, \
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        out, err = subprocess_call.communicate()
-        if err:
-            raise NameError(
-                '\n============= WARNING/ERROR ===============\n{}\n\
-===========================================\n'.format(err.rstrip()))
-        #return out
+        """Remove the first line from file.
+        First, check if sed exists on the PATH
+        or remove first line ourselves manually"""
+
+        if not SED_FOUND:
+            with open(file, 'r') as file_handler_in:
+                data = file_handler_in.read().splitlines(True)
+            with open(file, 'w') as file_handler_out:
+                file_handler_out.writelines(data[1:])
+        else:
+            cmd = ['sed', '-i', '-e', '1d', file]
+            subprocess_call = subprocess.Popen(cmd, shell=False, \
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            out, err = subprocess_call.communicate()
+            if err:
+                raise NameError(
+                    '\n============= WARNING/ERROR ===============\n{}\n\
+    ===========================================\n'.format(err.rstrip()))
+            #return out
 
 
     def display_list_content(self, file):
         """Print content of file list as a recap
         in either a text editor or in stdout"""
+
         found_editor = os.environ.get('EDITOR', 'vim') # vim by default
         text_viewers = ['subl3', 'vi' 'nano', 'gedit', 'less', 'more', 'cat']
 
@@ -582,10 +598,7 @@ class FileUtil:
                     break
 
         with open(file, 'r') as file_handler:
-            if not subprocess.call([found_editor, file_handler.name]):
-                return True # exit status code was 0
-            else:
-                return False # exit status code was 1
+            return True if subprocess.call([found_editor, file_handler.name]) else False
 
         return False #something went wrong?
 
@@ -838,4 +851,4 @@ class GfycatClientError(Exception):
 
 if __name__ == "__main__":
     MAIN_OBJ = Main()
-    MAIN_OBJ.main()
+    MAIN_OBJ.main() # horrible
