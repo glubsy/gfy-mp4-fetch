@@ -13,6 +13,7 @@ import re
 # import tty
 # import termios
 import random
+from tempfile import gettempdir
 import requests
 # import _thread
 
@@ -24,38 +25,19 @@ except ImportError:
 #import json
 
 QUERY_ENDPOINT = 'http://gfycat.com/cajax/get/'
-TMP = '/tmp/'
+TMP = gettempdir() + "/"
 FILELIST = 'gfyfetch_filelist.txt'
 ERRORLIST = 'gfyfetch_errorlist.txt'
-TMP_FILELIST = TMP + FILELIST
-TMP_ERRORLIST = TMP + ERRORLIST
-CWD = os.getcwd()
-CWD_FILELIST = CWD + FILELIST
-CWD_FILELIST = CWD + ERRORLIST
-ORIGINAL_FILELIST = TMP + 'gfyfetch_original_file_list.txt'
-ORIGINAL_FILELIST_SELECTED = TMP + 'gfyfetch_original_file_list_selected.txt'
+ORIGINAL_FILELIST = 'gfyfetch_original_file_list.txt'
+ORIGINAL_FILELIST_SELECTED = 'gfyfetch_original_file_list_selected.txt'
+CWD = os.getcwd() + "/"
+
 GLOBAL_LIST_OBJECT = {"parent_dir" : "", "file_id": "", \
 "remnant_size": "", "mp4Url": "", "download_size": "", "error": ""}
+
 RAND_MIN = 1
-RAND_MAX = 7
 
-
-def print_usage():
-    """Prints script usage"""
-
-    print('Usage: gfyfetch [DIR|LIST]\n* change current working directory \
-to the one where files will be downloaded\n\
-* submit location to scan as [DIR] or a file list text file with full paths [LIST]\n\
-* run the program as root to be able to pause by pressing \"q\" \
-and resume later (NOT recommended!).\n\
-Otherwise, run it as normal user (recommended) and press CTRL+C to pause downloads\n\
-* be aware that the file listing submitted will be emptied progressively\
-and deleted once its parsing & downloads are finished!\n\
-* errors will be logged in /tmp/gfyfetch_error.txt by default\n')
-    exit(0)
-
-
-class Main(object):
+class Main():
     """Main"""
 
     def __init__(self):
@@ -66,6 +48,13 @@ class Main(object):
         self.sigint_again = False
         self.has_text_listing_been_generated = False
         self.id_set = set()
+        self.input_dirorlist = ""
+        self.outputdir = ""
+        self.filelist = ""
+        self.errorlist = ""
+        self.original_filelist = ""
+        self.original_filelistselected = ""
+        self.maxseconds = int()
 
     def main(self):
         """This is wrong"""
@@ -78,22 +67,48 @@ not recommended." + BColors.ENDC)
             import keyboard # This trick only works as root, not good
             keyboard.add_hotkey('q', self.on_triggered)
 
-        if len(sys.argv) < 2:
-            print_usage()
-        else:
-            arg1 = str(sys.argv[1])
+
+        argparser = argparse.ArgumentParser(description=\
+        "Crawls a specified directory for gfycat webm/gif and downloads their mp4 equivalents.\n\
+        Use ctrl+c once to pause after a download is done, twice to force quit.\n\
+        Errors will be logged in /tmp/gfyfetch_error.txt by default")
+        argparser.add_argument("input", type=str, help=\
+        "input directory to scan or file list txt to parse")
+        argparser.add_argument("-o", "--outputdir", dest="outputdir", type=str, help=\
+        "target directory for downloads (default is current working dir)", default=CWD)
+        argparser.add_argument("-l", "--filelist", dest="filelist", type=str, help=\
+        "path to generate file listing into (default is TEMP)", default=TMP)
+        argparser.add_argument("-e", "--errorlist", dest="errorlist", type=str, help=\
+        "path to generate file listing into (default is $cwd)", default=CWD)
+        argparser.add_argument("-s", "--seconds", dest="maxseconds", type=int, help=\
+        "maximum number of seconds to wait before next download (default is 7)", default=7)
+
+        args = argparser.parse_args()
+
+        MAIN_OBJ.input_dirorlist = args.input
+        MAIN_OBJ.outputdir = args.outputdir
+        MAIN_OBJ.filelist = args.filelist + FILELIST
+        MAIN_OBJ.errorlist = args.errorlist + ERRORLIST
+        MAIN_OBJ.original_filelist = TMP + ORIGINAL_FILELIST
+        MAIN_OBJ.original_filelistselected = TMP + ORIGINAL_FILELIST_SELECTED
+        MAIN_OBJ.maxseconds = args.maxseconds
+
+        # print("ARGUMENTS:", "\ninput_dirorlist", MAIN_OBJ.outputdir, "\noutputdir", \
+        # MAIN_OBJ.outputdir, "\nfilelist", MAIN_OBJ.filelist, "\nerrorlist", MAIN_OBJ.errorlist,\
+        # "\noriginal_filelist", MAIN_OBJ.original_filelist, \
+        # "\noriginal_filelistselected", MAIN_OBJ.original_filelistselected)
 
         if SetupClass.previous_tmp_file_exists(self):
             if not SetupClass.setup_prompt_resume(self):
-                if SetupClass.is_first_arg_dir(self, arg1):
-                    SetupClass.setup_use_dir(self, arg1)
+                if SetupClass.is_first_arg_dir(self, self.input_dirorlist):
+                    SetupClass.setup_use_dir(self, self.input_dirorlist)
                 else:
-                    SetupClass.setup_use_file(self, arg1)
+                    SetupClass.setup_use_file(self, self.input_dirorlist)
         else:
-            if SetupClass.is_first_arg_dir(self, arg1):
-                SetupClass.setup_use_dir(self, arg1)
+            if SetupClass.is_first_arg_dir(self, self.input_dirorlist):
+                SetupClass.setup_use_dir(self, self.input_dirorlist)
             else:
-                SetupClass.setup_use_file(self, arg1)
+                SetupClass.setup_use_file(self, self.input_dirorlist)
 
 
     def is_sigint_called_twice(self):
@@ -101,7 +116,7 @@ not recommended." + BColors.ENDC)
         if not self.sigint_again:
             self.sigint_again = True
             return False
-        FileUtil.write_string_to_file(self, str("Script has been forcefully terminated"))
+        FileUtil.write_string_to_file(self, str("Script has been forcefully terminated"), MAIN_OBJ.errorlist)
         return True
 
 
@@ -141,7 +156,7 @@ Watch out for partially downloaded files!" + BColors.ENDC)
 
         if MAIN_OBJ.has_text_listing_been_generated:
             FileUtil.compare_lists_content(self, \
-            ORIGINAL_FILELIST, ORIGINAL_FILELIST_SELECTED)
+            MAIN_OBJ.original_filelist, MAIN_OBJ.original_filelistselected)
 
         if SetupClass.query_yes_no(self, \
         "Would you like to edit the download queue?", default="no"):
@@ -172,7 +187,6 @@ Watch out for partially downloaded files!" + BColors.ENDC)
                 "' has already been downloaded before (other directory).\n" + BColors.ENDC)
 
             # Create our download directory if doesn't exist
-            # FIXME add option to set manually instead of CWD
             SetupClass.setup_download_dir(self, GLOBAL_LIST_OBJECT['parent_dir'])
 
             # print(BColors.OKGREEN + "DEBUG: GLOBAL_OBJECT_LIST:", \
@@ -185,12 +199,12 @@ Watch out for partially downloaded files!" + BColors.ENDC)
                 GLOBAL_LIST_OBJECT['error'] = None
                 GLOBAL_LIST_OBJECT['remnant_size'] = None
                 GLOBAL_LIST_OBJECT['download_size'] = None
-                time.sleep(random.uniform(RAND_MIN, RAND_MAX))
+                time.sleep(random.uniform(RAND_MIN, MAIN_OBJ.maxseconds))
             else:
                 print(BColors.FAIL + "Download of " + GLOBAL_LIST_OBJECT['parent_dir'] + "/" + \
                 GLOBAL_LIST_OBJECT['file_id'] + " failed! Reason: " + \
                 GLOBAL_LIST_OBJECT['error'] + BColors.ENDC)
-                FileUtil.write_error_to_file(self)
+                FileUtil.write_error_to_file(self, MAIN_OBJ.errorlist)
 
                 GLOBAL_LIST_OBJECT['error'] = None
                 GLOBAL_LIST_OBJECT['remnant_size'] = None
@@ -258,16 +272,16 @@ class SetupClass:
 
     def setup_download_dir(self, directory):
         """Setup local directory structure for downloads"""
-        if not os.path.isdir(CWD + os.sep + directory):
-            os.makedirs(CWD + os.sep + directory)
+        if not os.path.isdir(MAIN_OBJ.outputdir + os.sep + directory):
+            os.makedirs(MAIN_OBJ.outputdir + os.sep + directory)
 
 
     def setup_use_dir(self, directory):
         """Starts logic to scan supplied dir path"""
         print("Scanning directory:", directory)
         FileUtil.scan_directory(self, directory)
-        if FileUtil.read_file_listing(self, TMP_FILELIST):
-            Main.entry_point(self, TMP_FILELIST)
+        if FileUtil.rewrite_file_listing(self, MAIN_OBJ.filelist):
+            Main.entry_point(self, MAIN_OBJ.filelist)
         exit(0)
 
 
@@ -276,9 +290,11 @@ class SetupClass:
         print("Using supplied file list '" + file + "' as file listing.")
 
         if not MAIN_OBJ.has_text_listing_been_generated:
-            #TODO: ignore this function if file matches FILELIST (gfyfetch_filelist.txt)? No need to redo this.
-            if not FileUtil.read_file_listing(self, file):
-                exit(1)
+            #only checking input file in case it's not the usual name
+            if FILELIST not in file:
+                if not FileUtil.rewrite_file_listing(self, file):
+                    print(BColors.FAIL + "ERROR parsing the file listing supplied" + BColors.ENDC)
+                    exit(1)
         Main.entry_point(self, file)
         exit(0)
 
@@ -287,15 +303,15 @@ class SetupClass:
         """Prompts user to resume from existing file in default location
         returns False if answered no"""
         question = BColors.HEADER + "Warning: a previous file listing is present in " \
-        + TMP_FILELIST + "\nWould you like to load listing from it?" + BColors.ENDC
+        + MAIN_OBJ.filelist + "\nWould you like to load listing from it?" + BColors.ENDC
         if SetupClass.query_yes_no(self, question):
-            SetupClass.setup_use_file(self, TMP_FILELIST)
+            SetupClass.setup_use_file(self, MAIN_OBJ.filelist)
         return False
 
 
     def previous_tmp_file_exists(self):
         """Checks if a previously generated file listing is in default location"""
-        if os.path.isfile(TMP_FILELIST):
+        if os.path.isfile(MAIN_OBJ.filelist):
             return True
         return False
 
@@ -386,12 +402,12 @@ class FileUtil:
         print("Number of duplicate IDs found:", dupecount, \
         "files. Total:", count, "files retained.")
 
-        FileUtil.write_list_to_file(self, TMP_FILELIST, file_list)
-        FileUtil.write_list_to_file(self, ORIGINAL_FILELIST, original_file_listing)
-        FileUtil.write_list_to_file(self, ORIGINAL_FILELIST_SELECTED, \
+        FileUtil.write_list_to_file(self, MAIN_OBJ.filelist, file_list)
+        FileUtil.write_list_to_file(self, MAIN_OBJ.original_filelist, original_file_listing)
+        FileUtil.write_list_to_file(self, MAIN_OBJ.original_filelistselected, \
         original_file_listing_selected)
 
-        MAIN_OBJ.has_text_listing_been_generated = True #this is fucking weird, OOP much?
+        MAIN_OBJ.has_text_listing_been_generated = True
 
     def parse_path_line(self, theline, splits=True):
         """Strips unnecessary extension and path to isolate ID.
@@ -456,10 +472,12 @@ class FileUtil:
         return False
 
 
-    def read_file_listing(self, file): #FIXME
+    def rewrite_file_listing(self, file):
         """Read entire text file check for duplicates
         and rewrite it (like uniq, ignoring extensions)
-        in case this one list was not generated by us before"""
+        in case this one list was not generated by us before
+        return False if file is not valid ASCII text
+        return True when file overwritten"""
 
         current_file_props = []
         dir_id_pair = []
@@ -502,7 +520,7 @@ class FileUtil:
         return True
 
 
-    def write_string_to_file(self, string, file=TMP_ERRORLIST):
+    def write_string_to_file(self, string, file):
         """Write string to file"""
 
         with open(file, 'a') as file_handler:
@@ -510,7 +528,7 @@ class FileUtil:
             #file_handler.write("{}\n".format(item))
 
 
-    def write_error_to_file(self, file=TMP_ERRORLIST):
+    def write_error_to_file(self, file):
         """Write file IDs that generated errors to file"""
 
         with open(file, 'a') as file_handler:
@@ -539,6 +557,7 @@ class FileUtil:
     def remove_first_line(self, file):
         """Remove the first line from file"""
         #FIXME: check if sed exists like below and use call after checking file isfile
+        # or remove first line ourselves
         cmd = ['sed', '-i', '-e', '1d', file]
         subprocess_call = subprocess.Popen(cmd, shell=False, \
         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -619,12 +638,11 @@ class Downloader:
         if Downloader.json_query_errored(self, Downloader.gfycat_client_fetcher(self, file_id)):
             return False
 
-        #FIXME: make destination mutable
         destination = Downloader.generate_dest_filename(self, \
         GLOBAL_LIST_OBJECT['parent_dir'], GLOBAL_LIST_OBJECT['file_id'])
 
         if FileUtil.check_dupe_size(self, \
-        str(CWD + os.sep + download_dir + os.sep + file_id + ".mp4"), GLOBAL_LIST_OBJECT['download_size']): #FIXME: no default download path
+        str(MAIN_OBJ.outputdir + os.sep + download_dir + os.sep + file_id + ".mp4"), GLOBAL_LIST_OBJECT['download_size']):
             print(BColors.WARNING + "Warning: the file about to be downloaded: " + destination + \
             " already exists (same sizes). Skipping." + BColors.ENDC)
             return True #skipping download
@@ -642,8 +660,6 @@ class Downloader:
 
         if Downloader.file_downloader(self, GLOBAL_LIST_OBJECT['mp4Url'], destination):
             return True
-        else:
-            return False
 
         return False
 
@@ -776,10 +792,10 @@ class Downloader:
     def generate_dest_filename(self, download_dir, file_id):
         """make final filename for file to be written"""
         try_number = 1
-        download_dest = CWD + os.sep + download_dir + os.sep + file_id + ".mp4" #FIXME: no default download path!
+        download_dest = MAIN_OBJ.outputdir + os.sep + download_dir + os.sep + file_id + ".mp4"
 
         while os.path.isfile(download_dest):
-            download_dest = CWD + os.sep + download_dir + os.sep + \
+            download_dest = MAIN_OBJ.outputdir + os.sep + download_dir + os.sep + \
             file_id + ("_(%s)" %(try_number)) + ".mp4"
             try_number += 1
             if not os.path.isfile(download_dest):
@@ -823,7 +839,3 @@ class GfycatClientError(Exception):
 if __name__ == "__main__":
     MAIN_OBJ = Main()
     MAIN_OBJ.main()
-
-#TODO: better error handling
-#TODO: add option args
-#TODO: set temp dir, filelisting dir, target dir...
