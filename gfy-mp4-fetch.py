@@ -361,7 +361,7 @@ class FileUtil:
         matches strings starting with 1 capital, 1 lowercase, no number or whitespaces"""
         #we don't consider dupes if same filenames in different directories
         # unixpattern = '*.mp4'
-        repattern = r'^([A-Z][a-z]+[^0-9\s\_\-\\\'])+(\.webm|\.gif|\.mp4)$' #FIXME: afaik 3 caps max!
+        repattern = r'^([A-Z]+[a-z]+[A-Z]+[a-z]+[A-Z]+[a-z]+[^0-9\s\_\-\\\'])+(\.webm|\.gif|\.mp4)$'
         file_list = []
         file_id_set = set() #just to check for already seen (dupes)
         count = 0
