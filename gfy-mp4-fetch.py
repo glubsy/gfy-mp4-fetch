@@ -35,7 +35,7 @@ FILELIST = 'gfyfetch_filelist.txt'
 ERRORLIST = 'gfyfetch_errorlist.txt'
 ORIGINAL_FILELIST = 'gfyfetch_original_file_list.txt'
 ORIGINAL_FILELIST_SELECTED = 'gfyfetch_original_file_list_selected.txt'
-CWD = os.getcwd() + "/"
+CWD = os.getcwd()
 
 GLOBAL_LIST_OBJECT = {"parent_dir" : "", "file_id": "", \
 "remnant_size": "", "mp4Url": "", "download_size": "", "error": ""}
@@ -92,7 +92,7 @@ not recommended." + BColors.ENDC)
         args = argparser.parse_args()
 
         MAIN_OBJ.input_dirorlist = args.input
-        MAIN_OBJ.outputdir = args.outputdir
+        MAIN_OBJ.outputdir = args.outputdir + os.sep
         MAIN_OBJ.filelist = args.filelist + FILELIST
         MAIN_OBJ.errorlist = args.errorlist + ERRORLIST
         MAIN_OBJ.original_filelist = TMP + ORIGINAL_FILELIST
@@ -187,6 +187,9 @@ Watch out for partially downloaded files!" + BColors.ENDC)
             # Retrieve parent_dir/file_id from text list
             GLOBAL_LIST_OBJECT['parent_dir'], GLOBAL_LIST_OBJECT['file_id'], \
             GLOBAL_LIST_OBJECT['remnant_size'] = FileUtil.read_first_line(self, file)
+
+            print("\n====================================================================\n"+\
+            "Processing: " + GLOBAL_LIST_OBJECT['parent_dir'] + "/" + GLOBAL_LIST_OBJECT['file_id'] + "\n")
 
             if FileUtil.has_id_already_downloaded(self, GLOBAL_LIST_OBJECT['file_id']):
                 print(BColors.OKBLUE + "Warning: the ID '" + GLOBAL_LIST_OBJECT['file_id'] + \
@@ -502,7 +505,6 @@ class FileUtil:
                 dir_id_pair = current_file_props[1] + "/" + current_file_props[2]
                 if dir_id_pair not in dir_id_pair_set: # skip if dir/fileid already been seen
                     dir_id_pair_set.add(dir_id_pair)
-                    #process_id(current_file_props[1], current_file_props[2])
                     clean_list.append(line)
 
             clean_list.sort()
@@ -655,7 +657,8 @@ class Downloader:
         GLOBAL_LIST_OBJECT['parent_dir'], GLOBAL_LIST_OBJECT['file_id'])
 
         if FileUtil.check_dupe_size(self, \
-        str(MAIN_OBJ.outputdir + os.sep + download_dir + os.sep + file_id + ".mp4"), GLOBAL_LIST_OBJECT['download_size']):
+        str(MAIN_OBJ.outputdir + os.sep + download_dir + os.sep + file_id + ".mp4"), \
+        GLOBAL_LIST_OBJECT['download_size']):
             print(BColors.WARNING + "Warning: the file about to be downloaded: " + destination + \
             " already exists (same sizes). Skipping." + BColors.ENDC)
             return True #skipping download
@@ -672,7 +675,15 @@ class Downloader:
             return False
 
         if Downloader.file_downloader(self, GLOBAL_LIST_OBJECT['mp4Url'], destination):
-            return True
+            dest_filesize = os.path.getsize(destination)
+            if int(GLOBAL_LIST_OBJECT['download_size']) == dest_filesize:
+                return True
+            else:
+                print(BColors.FAIL + "Warning: downloaded file size is not the same as expected size: " + \
+                GLOBAL_LIST_OBJECT['download_size'] + " != " + str(dest_filesize) + BColors.ENDC)
+
+                GLOBAL_LIST_OBJECT['error'] = str("Expected dowload size of " + \
+                str(GLOBAL_LIST_OBJECT['download_size']) + " is not the downloaded file size of " + str(dest_filesize) + "!")
 
         return False
 
@@ -768,10 +779,10 @@ class Downloader:
 
         print("Destination: ", destination)
         headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:55.0) \
-        Gecko/20100101 Firefox/54.0'}
+        Gecko/20100101 Firefox/55.0'}
         request_session = requests.Session()
         request_session.headers.update({'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; \
-        rv:55.0) Gecko/20100101 Firefox/54.0'})
+        rv:55.0) Gecko/20100101 Firefox/55.0'})
 
         # url="http://httpbin.org/headers" #for testing
         chunk_size = 1024
@@ -779,12 +790,19 @@ class Downloader:
         req = request_session.get(url, headers=headers, stream=True)
         if req.status_code != 200:
             if TQDM_AVAILABLE:
-                tqdm.write(BColors.FAIL + "Error fetching the URL: " + \
+                tqdm.write(BColors.FAIL + "Error downloading the URL: " + \
                 req.status_code + BColors.ENDC)
+
+                GLOBAL_LIST_OBJECT['error'] = str("Error downloading the URL: " + url + \
+                "into " + destination + ". Error was:" + req.status_code)
                 return False
             else:
-                print(BColors.FAIL + "Error fetching the URL: " + req.status_code + BColors.ENDC)
+                print(BColors.FAIL + "Error downloading the URL: " + req.status_code + BColors.ENDC)
+
+                GLOBAL_LIST_OBJECT['error'] = str("Error downloading the URL: " + url + \
+                "into " + destination + ". Error was:" + req.status_code)
                 return False
+
         with open(destination, 'wb') as file_handler:
             if TQDM_AVAILABLE:
                 pbar = tqdm(unit="B", total=int(req.headers['Content-Length']))
@@ -793,6 +811,7 @@ class Downloader:
                     pbar.update(len(chunk))
                     file_handler.write(chunk)
         if TQDM_AVAILABLE:
+            pbar.close()
             tqdm.write(BColors.BOLD + "\nDownload of " + GLOBAL_LIST_OBJECT['parent_dir'] + \
             "/" + GLOBAL_LIST_OBJECT['file_id'] + " completed!" + BColors.ENDC)
         else:
@@ -805,10 +824,10 @@ class Downloader:
     def generate_dest_filename(self, download_dir, file_id):
         """make final filename for file to be written"""
         try_number = 1
-        download_dest = MAIN_OBJ.outputdir + os.sep + download_dir + os.sep + file_id + ".mp4"
+        download_dest = MAIN_OBJ.outputdir + download_dir + os.sep + file_id + ".mp4"
 
         while os.path.isfile(download_dest):
-            download_dest = MAIN_OBJ.outputdir + os.sep + download_dir + os.sep + \
+            download_dest = MAIN_OBJ.outputdir + download_dir + os.sep + \
             file_id + ("_(%s)" %(try_number)) + ".mp4"
             try_number += 1
             if not os.path.isfile(download_dest):
