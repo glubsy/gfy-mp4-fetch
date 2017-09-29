@@ -101,9 +101,9 @@ and retained files by regexp (default diffmerge, falls back to diff on Linux)", 
         diffargs = vars(args)
 
         MAIN_OBJ.input_dirorlist = args.input
-        MAIN_OBJ.outputdir = args.outputdir + os.sep
+        MAIN_OBJ.outputdir = str(args.outputdir).rstrip("/") + os.sep
         MAIN_OBJ.filelist = args.filelist + os.sep + FILELIST
-        MAIN_OBJ.errorlist = args.errorlist + os.sep + ERRORLIST
+        MAIN_OBJ.errorlist = str(args.errorlist).rstrip("/") + os.sep + ERRORLIST
         MAIN_OBJ.original_filelist = TMP + os.sep + ORIGINAL_FILELIST
         MAIN_OBJ.original_filelistselected = TMP + os.sep + ORIGINAL_FILELIST_SELECTED
         MAIN_OBJ.maxseconds = args.maxseconds
