@@ -30,12 +30,12 @@ else:
     SED_FOUND = False
 
 QUERY_ENDPOINT = 'http://gfycat.com/cajax/get/'
-TMP = gettempdir() + "/"
+TMP = gettempdir() + os.sep
 FILELIST = 'gfyfetch_filelist.txt'
 ERRORLIST = 'gfyfetch_errorlist.txt'
 ORIGINAL_FILELIST = 'gfyfetch_original_file_list.txt'
 ORIGINAL_FILELIST_SELECTED = 'gfyfetch_original_file_list_selected.txt'
-CWD = os.getcwd()
+CWD = os.getcwd() + os.sep
 
 GLOBAL_LIST_OBJECT = {"parent_dir" : "", "file_id": "", \
 "remnant_size": "", "mp4Url": "", "download_size": "", "error": ""}
@@ -92,7 +92,7 @@ not recommended." + BColors.ENDC)
         args = argparser.parse_args()
 
         MAIN_OBJ.input_dirorlist = args.input
-        MAIN_OBJ.outputdir = args.outputdir + os.sep
+        MAIN_OBJ.outputdir = args.outputdir
         MAIN_OBJ.filelist = args.filelist + FILELIST
         MAIN_OBJ.errorlist = args.errorlist + ERRORLIST
         MAIN_OBJ.original_filelist = TMP + ORIGINAL_FILELIST
@@ -791,16 +791,17 @@ class Downloader:
         if req.status_code != 200:
             if TQDM_AVAILABLE:
                 tqdm.write(BColors.FAIL + "Error downloading the URL: " + \
-                req.status_code + BColors.ENDC)
+                str(req.status_code) + BColors.ENDC)
 
                 GLOBAL_LIST_OBJECT['error'] = str("Error downloading the URL: " + url + \
-                "into " + destination + ". Error was:" + req.status_code)
+                " into " + destination + ". Error was:" + str(req.status_code))
                 return False
             else:
-                print(BColors.FAIL + "Error downloading the URL: " + req.status_code + BColors.ENDC)
+                print(BColors.FAIL + "Error downloading the URL: " + url + \
+                " into " + destination + ". Error was:" + str(req.status_code) + BColors.ENDC)
 
                 GLOBAL_LIST_OBJECT['error'] = str("Error downloading the URL: " + url + \
-                "into " + destination + ". Error was:" + req.status_code)
+                " into " + destination + ". Error was:" + str(req.status_code))
                 return False
 
         with open(destination, 'wb') as file_handler:
