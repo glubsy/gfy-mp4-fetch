@@ -27,12 +27,12 @@ except ImportError:
 SED_FOUND = True if os.path.exists(str(shutil.which("sed"))) else False
 
 QUERY_ENDPOINT = 'http://gfycat.com/cajax/get/'
-TMP = gettempdir() + os.sep
+TMP = gettempdir()
 FILELIST = 'gfyfetch_filelist.txt'
 ERRORLIST = 'gfyfetch_errorlist.txt'
 ORIGINAL_FILELIST = 'gfyfetch_original_file_list.txt'
 ORIGINAL_FILELIST_SELECTED = 'gfyfetch_original_file_list_selected.txt'
-CWD = os.getcwd() + os.sep
+CWD = os.getcwd()
 
 GLOBAL_LIST_OBJECT = {"parent_dir" : "", "file_id": "", \
 "remnant_size": "", "mp4Url": "", "download_size": "", "error": ""}
@@ -101,11 +101,11 @@ and retained files by regexp (default diffmerge, falls back to diff on Linux)", 
         diffargs = vars(args)
 
         MAIN_OBJ.input_dirorlist = args.input
-        MAIN_OBJ.outputdir = args.outputdir
-        MAIN_OBJ.filelist = args.filelist + FILELIST
-        MAIN_OBJ.errorlist = args.errorlist + ERRORLIST
-        MAIN_OBJ.original_filelist = TMP + ORIGINAL_FILELIST
-        MAIN_OBJ.original_filelistselected = TMP + ORIGINAL_FILELIST_SELECTED
+        MAIN_OBJ.outputdir = args.outputdir + os.sep
+        MAIN_OBJ.filelist = args.filelist + os.sep + FILELIST
+        MAIN_OBJ.errorlist = args.errorlist + os.sep + ERRORLIST
+        MAIN_OBJ.original_filelist = TMP + os.sep + ORIGINAL_FILELIST
+        MAIN_OBJ.original_filelistselected = TMP + os.sep + ORIGINAL_FILELIST_SELECTED
         MAIN_OBJ.maxseconds = args.maxseconds
 
         if args.nodiff:
@@ -212,9 +212,6 @@ Watch out for partially downloaded files!" + BColors.ENDC)
             if FileUtil.has_id_already_downloaded(self, GLOBAL_LIST_OBJECT['file_id']):
                 print(BColors.OKBLUE + "Warning: the ID '" + GLOBAL_LIST_OBJECT['file_id'] + \
                 "' has already been downloaded before (other directory).\n" + BColors.ENDC)
-
-            # Create our download directory if doesn't exist
-            SetupClass.setup_download_dir(self, GLOBAL_LIST_OBJECT['parent_dir'])
 
             # print(BColors.OKGREEN + "DEBUG: GLOBAL_OBJECT_LIST:", \
             # str(GLOBAL_LIST_OBJECT) + BColors.ENDC)
@@ -762,6 +759,9 @@ class Downloader:
         if "http" not in GLOBAL_LIST_OBJECT['mp4Url']:
             print(BColors.FAIL + "ERROR: no http in:" + GLOBAL_LIST_OBJECT['mp4Url'] + BColors.ENDC)
             return False
+
+        # Create our download directory if doesn't exist
+        SetupClass.setup_download_dir(self, GLOBAL_LIST_OBJECT['parent_dir'])
 
         if Downloader.file_downloader(self, GLOBAL_LIST_OBJECT['mp4Url'], destination):
             dest_filesize = os.path.getsize(destination)
