@@ -24,10 +24,7 @@ except ImportError:
     TQDM_AVAILABLE = False
 #import json
 
-if os.path.exists(str(shutil.which("sed"))):
-    SED_FOUND = True
-else:
-    SED_FOUND = False
+SED_FOUND = True if os.path.exists(str(shutil.which("sed"))) else False
 
 QUERY_ENDPOINT = 'http://gfycat.com/cajax/get/'
 TMP = gettempdir() + os.sep
@@ -61,6 +58,8 @@ class Main():
         self.original_filelist = ""
         self.original_filelistselected = ""
         self.maxseconds = int()
+        self.diff_program = ""
+        self.original_longest_line = ""
 
     def main(self):
         """This is wrong"""
@@ -78,18 +77,28 @@ not recommended." + BColors.ENDC)
         "Crawls a specified directory for gfycat webm/gif and downloads their mp4 equivalents.\n\
         Use ctrl+c once to pause after a download is done, twice to force quit.\n\
         Errors will be logged in /tmp/gfyfetch_error.txt by default")
-        argparser.add_argument("input", type=str, help=\
+
+        group = argparser.add_mutually_exclusive_group()
+
+        argparser.add_argument("input", type=str, metavar="INPUT", help=\
         "input directory to scan or file list txt to parse")
-        argparser.add_argument("-o", "--outputdir", dest="outputdir", type=str, help=\
+        argparser.add_argument("-o", "--outputdir", dest="outputdir", type=str, metavar="path", help=\
         "target directory for downloads (default is current working dir)", default=CWD)
-        argparser.add_argument("-l", "--filelist", dest="filelist", type=str, help=\
+        argparser.add_argument("-l", "--filelist", dest="filelist", type=str, metavar="path", help=\
         "path to generate file listing into (default is TEMP)", default=TMP)
-        argparser.add_argument("-e", "--errorlist", dest="errorlist", type=str, help=\
+        argparser.add_argument("-e", "--errorlist", dest="errorlist", metavar="path", type=str, help=\
         "path to generate file listing into (default is $cwd)", default=CWD)
-        argparser.add_argument("-s", "--seconds", dest="maxseconds", type=int, help=\
+        argparser.add_argument("-s", "--seconds", dest="maxseconds", type=int, metavar="seconds", help=\
         "maximum number of seconds to wait before next download (default is 7)", default=7)
+        group.add_argument("-d", "--diff", dest="diff", type=str, help=\
+        "program to use for diplaying differences between original list \
+and retained files by regexp (default diffmerge, falls back to diff on Linux)", \
+        metavar=("program", "args"), nargs="+", default=("diffmerge", ""))
+        group.add_argument("--nodiff", dest="nodiff", action='store_true', help=\
+        "disable regex scrape difference checks with diff after directory scan", default=False)
 
         args = argparser.parse_args()
+        diffargs = vars(args)
 
         MAIN_OBJ.input_dirorlist = args.input
         MAIN_OBJ.outputdir = args.outputdir
@@ -98,6 +107,15 @@ not recommended." + BColors.ENDC)
         MAIN_OBJ.original_filelist = TMP + ORIGINAL_FILELIST
         MAIN_OBJ.original_filelistselected = TMP + ORIGINAL_FILELIST_SELECTED
         MAIN_OBJ.maxseconds = args.maxseconds
+
+        if args.nodiff:
+            MAIN_OBJ.diff_program = None
+        else:
+            #isolating diff program supplied
+            MAIN_OBJ.diff_program = (str(diffargs["diff"][0]).split())
+            # MAIN_OBJ.diff_program = args.diff[0]
+
+        #TODO: add extension to filter (only webm, only mp4, only gif, all)
 
         # print("ARGUMENTS:", "\ninput_dirorlist", MAIN_OBJ.outputdir, "\noutputdir", \
         # MAIN_OBJ.outputdir, "\nfilelist", MAIN_OBJ.filelist, "\nerrorlist", MAIN_OBJ.errorlist,\
@@ -416,9 +434,11 @@ class FileUtil:
         FileUtil.write_list_to_file(self, MAIN_OBJ.original_filelistselected, \
         original_file_listing_selected)
 
+        #max line length for formatting diff output in case we'll use it
+        MAIN_OBJ.original_longest_line = str(len(max(original_file_listing, key=len)) * 2 + 7)
         MAIN_OBJ.has_text_listing_been_generated = True
 
-    def parse_path_line(self, theline, splits=True):
+    def parse_path_line(self, theline, wantsplits=True):
         """Strips unnecessary extension and path to isolate ID.
         Returns list of [file_noext, file_dirname, file_id, file_size]
         file_size returned only if splits=True"""
@@ -427,7 +447,7 @@ class FileUtil:
         file_noext = os.path.splitext(theline)[0]
         file_dirname = os.path.basename(os.path.dirname(theline))
         file_id = os.path.basename(file_noext)
-        if splits:
+        if wantsplits:
             numsplits = 0
             for splits in theline.split("\t"):
                 if splits is not "":
@@ -521,7 +541,7 @@ class FileUtil:
 
 
     def add_id_to_downloaded_set(self, fileid):
-        """Append ID to the set to keep track of 
+        """Append ID to the set to keep track of
         successful downloads"""
         if fileid not in MAIN_OBJ.id_set:
             MAIN_OBJ.id_set.add(fileid)
@@ -610,15 +630,84 @@ class FileUtil:
         between original file layout, and the same layout with ignored files
         replaced by new lines. Just to make sure the RE worked alright"""
 
-        if os.path.exists(str(shutil.which('diffmerge'))):
-            subprocess.run(['diffmerge', original_list, original_list_filtered], \
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        else:
-            print("These are the lines we think are from gfycat.\n\
+        if MAIN_OBJ.diff_program is None:
+            #--nodiff was set
+            return
+
+        command_str = ""
+        for elem in MAIN_OBJ.diff_program:
+            command_str += elem
+            command_str += " "
+
+        command_list = list()
+        for elem in MAIN_OBJ.diff_program:
+            command_list.append(elem)
+
+        string_diff_explanation = BColors.OKGREEN + "These are the lines we think are from gfycat.\n\
 In red are the lines totally ignored, white are the ones we cared about and kept.\n\
-We will ignore duplicate IDs automatically from now on.\n")
-            subprocess.run(['diff', '--color=auto', '--left-column', \
-            '-ByW', '250', original_list, original_list_filtered])
+We will ignore duplicate IDs automatically from now on.\n" + BColors.ENDC + "Opening: " +\
+command_str + original_list + " " + original_list_filtered + BColors.ENDC
+
+        if "diffmerge" in command_list[0] and os.path.exists(str(shutil.which(command_list[0]))):
+            print(string_diff_explanation)
+            print("diffmerge may take a little while to parse... \n")
+
+            command_list.append(original_list)
+            command_list.append(original_list_filtered)
+            subprocess.run(command_list, \
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
+
+        elif "diffmerge" in command_list[0] and not os.path.exists(str(shutil.which(command_list[0]))):
+            print(string_diff_explanation)
+            if os.path.exists(str(shutil.which('diff'))):
+                try:
+                    subprocess.run(['diff', '--color=auto', '--left-column', \
+                '-ByW', MAIN_OBJ.original_longest_line, original_list, original_list_filtered])
+                    return
+                except:
+                    pass
+            else:
+                pass
+
+        elif command_list[0] == "diff" and os.path.exists(str(shutil.which(command_list[0]))):
+            print(string_diff_explanation)
+
+            command_list.append('--color=auto')
+            command_list.append('--left-column')
+            command_list.append('-ByW')
+            command_list.append(MAIN_OBJ.original_longest_line)
+            command_list.append(original_list)
+            command_list.append(original_list_filtered)
+            try:
+                subprocess.run(command_list)
+                return
+            except:
+                pass
+
+        elif os.path.exists(str(shutil.which(command_list[0]))):
+            command_list.append(original_list)
+            command_list.append(original_list_filtered)
+            try:
+                subprocess.run(command_list)
+                return
+            except:
+                pass
+        else:
+            command_list[0] = "diff"
+            command_list.append('--color=auto')
+            command_list.append('--left-column')
+            command_list.append('-ByW')
+            command_list.append(MAIN_OBJ.original_longest_line)
+            command_list.append(original_list)
+            command_list.append(original_list_filtered)
+            try:
+                subprocess.run(command_list)
+                return
+            except:
+                pass
+
+        print(BColors.FAIL + "Failed to load diff program: " + command_list[0] + BColors.ENDC)
 
 
     def check_dupe_size(self, presentfilepath, size):
@@ -712,13 +801,13 @@ class Downloader:
                 # print(BColors.FAIL + "JSON Fetcher Warning:", myquery['error'], BColors.ENDC)
                 GLOBAL_LIST_OBJECT['error'] = myquery['error']
                 return True
-            else:
-                print(BColors.OKGREEN + "MP4 URL is:", \
-                myquery['gfyItem']['mp4Url'], "and its size is:", myquery['gfyItem']['mp4Size'], BColors.ENDC)
 
-                GLOBAL_LIST_OBJECT['mp4Url'] = myquery['gfyItem']['mp4Url']
-                GLOBAL_LIST_OBJECT['download_size'] = myquery['gfyItem']['mp4Size']
-                return False
+            print(BColors.OKGREEN + "MP4 URL is:", \
+            myquery['gfyItem']['mp4Url'], "and its size is:", myquery['gfyItem']['mp4Size'], BColors.ENDC)
+
+            GLOBAL_LIST_OBJECT['mp4Url'] = myquery['gfyItem']['mp4Url']
+            GLOBAL_LIST_OBJECT['download_size'] = myquery['gfyItem']['mp4Size']
+            return False
         except:
             print(BColors.FAIL + "JSON Fetcher exception error: " + ValueError + BColors.ENDC)
             return True
@@ -866,8 +955,8 @@ class GfycatClientError(Exception):
     def __str__(self):
         if self.status_code:
             return "(%s) %s" % (self.status_code, self.error_message)
-        else:
-            return self.error_message
+
+        return self.error_message
 
 if __name__ == "__main__":
     MAIN_OBJ = Main()
