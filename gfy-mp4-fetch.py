@@ -97,6 +97,8 @@ and retained files by regexp (default diffmerge, falls back to diff on Linux)", 
         group.add_argument("--nodiff", dest="nodiff", action='store_true', help=\
         "disable regex scrape difference checks with diff after directory scan", default=False)
 
+        #TODO: flag to ignore ID if abc.mp4 and abc.webm where already seen when scanning dir
+
         args = argparser.parse_args()
         diffargs = vars(args)
 
@@ -227,7 +229,7 @@ Watch out for partially downloaded files!" + BColors.ENDC)
             else:
                 print(BColors.FAIL + "Download of " + GLOBAL_LIST_OBJECT['parent_dir'] + "/" + \
                 GLOBAL_LIST_OBJECT['file_id'] + " failed! Reason: " + \
-                GLOBAL_LIST_OBJECT['error'] + BColors.ENDC)
+                str(GLOBAL_LIST_OBJECT['error']) + BColors.ENDC)
                 FileUtil.write_error_to_file(self, MAIN_OBJ.errorlist)
 
                 GLOBAL_LIST_OBJECT['error'] = None
@@ -757,7 +759,12 @@ class Downloader:
             return True #skipping download
 
         if "http" not in GLOBAL_LIST_OBJECT['mp4Url']:
-            print(BColors.FAIL + "ERROR: no http in:" + GLOBAL_LIST_OBJECT['mp4Url'] + BColors.ENDC)
+            if "gfycat.com" in GLOBAL_LIST_OBJECT['mp4Url']:
+                (GLOBAL_LIST_OBJECT['mp4Url']) = "http://" + (GLOBAL_LIST_OBJECT['mp4Url'])
+                print("Fixed url to: " + str(GLOBAL_LIST_OBJECT['mp4Url']))
+
+            print(BColors.FAIL + "ERROR: no vallid http link in: " + \
+                GLOBAL_LIST_OBJECT['mp4Url'] + BColors.ENDC)
             return False
 
         # Create our download directory if doesn't exist
@@ -918,7 +925,7 @@ class Downloader:
 
         while os.path.isfile(download_dest):
             download_dest = MAIN_OBJ.outputdir + download_dir + os.sep + \
-            file_id + ("_(%s)" %(try_number)) + ".mp4"
+            file_id + (" (%s)" %(try_number)) + ".mp4"
             try_number += 1
             if not os.path.isfile(download_dest):
                 # We have finally found an unused filename, we keep it
