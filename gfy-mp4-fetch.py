@@ -776,10 +776,12 @@ class Downloader:
                 return True
             else:
                 print(BColors.FAIL + "Warning: downloaded file size is not the same as expected size: " + \
-                GLOBAL_LIST_OBJECT['download_size'] + " != " + str(dest_filesize) + BColors.ENDC)
+                GLOBAL_LIST_OBJECT['download_size'] + " != " + str(dest_filesize) + " . Removed." + BColors.ENDC)
+                if os.path.exists(destination):
+                    os.remove(destination)
 
                 GLOBAL_LIST_OBJECT['error'] = str("Expected dowload size of " + \
-                str(GLOBAL_LIST_OBJECT['download_size']) + " is not the downloaded file size of " + str(dest_filesize) + "!")
+                str(GLOBAL_LIST_OBJECT['download_size']) + " was not the downloaded file size of " + str(dest_filesize) + "!")
 
         return False
 
