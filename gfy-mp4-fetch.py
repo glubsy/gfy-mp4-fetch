@@ -35,7 +35,7 @@ ORIGINAL_FILELIST_SELECTED = 'gfyfetch_original_file_list_selected.txt'
 CWD = os.getcwd()
 
 GLOBAL_LIST_OBJECT = {"parent_dir" : "", "file_id": "", \
-"remnant_size": "", "mp4Url": "", "download_size": "", "error": ""}
+"remnant_size": "", "mp4Url": "", "download_size": "", "error": "", "source": ""}
 
 RAND_MIN = 1
 
@@ -60,6 +60,7 @@ class Main():
         self.maxseconds = int()
         self.diff_program = ""
         self.original_longest_line = ""
+        self.source_check = False
 
     def main(self):
         """This is wrong"""
@@ -96,6 +97,8 @@ and retained files by regexp (default diffmerge, falls back to diff on Linux)", 
         metavar=("program", "args"), nargs="+", default=("diffmerge", ""))
         group.add_argument("--nodiff", dest="nodiff", action='store_true', help=\
         "disable regex scrape difference checks with diff after directory scan", default=False)
+        argparser.add_argument("-c", "--source_check", dest="source_check", action='store_true', help=\
+        "only check source urls and write them to a file", default=False)
 
         #TODO: flag to ignore ID if abc.mp4 and abc.webm where already seen when scanning dir
 
@@ -109,6 +112,7 @@ and retained files by regexp (default diffmerge, falls back to diff on Linux)", 
         MAIN_OBJ.original_filelist = TMP + os.sep + ORIGINAL_FILELIST
         MAIN_OBJ.original_filelistselected = TMP + os.sep + ORIGINAL_FILELIST_SELECTED
         MAIN_OBJ.maxseconds = args.maxseconds
+        MAIN_OBJ.source_check = args.source_check
 
         if args.nodiff:
             MAIN_OBJ.diff_program = None
@@ -218,25 +222,45 @@ Watch out for partially downloaded files!" + BColors.ENDC)
             # print(BColors.OKGREEN + "DEBUG: GLOBAL_OBJECT_LIST:", \
             # str(GLOBAL_LIST_OBJECT) + BColors.ENDC)
 
-            if Downloader.process_id(self, GLOBAL_LIST_OBJECT['parent_dir'], \
-            GLOBAL_LIST_OBJECT['file_id'], GLOBAL_LIST_OBJECT['remnant_size']):
-                FileUtil.add_id_to_downloaded_set(self, GLOBAL_LIST_OBJECT['file_id'])
-                FileUtil.remove_first_line(self, file)
-                GLOBAL_LIST_OBJECT['error'] = None
-                GLOBAL_LIST_OBJECT['remnant_size'] = None
-                GLOBAL_LIST_OBJECT['download_size'] = None
-                time.sleep(random.uniform(RAND_MIN, MAIN_OBJ.maxseconds))
+            if MAIN_OBJ.source_check:
+                if Downloader.process_id_check_only(self, GLOBAL_LIST_OBJECT['file_id']):
+                    print(BColors.OKGREEN + "DEBUG: GLOBAL_OBJECT_LIST:", \
+                    str(GLOBAL_LIST_OBJECT) + BColors.ENDC)
+                    FileUtil.remove_first_line(self, file)
+                    GLOBAL_LIST_OBJECT['error'] = None
+                    GLOBAL_LIST_OBJECT['source'] = None
+                    time.sleep(random.uniform(RAND_MIN, MAIN_OBJ.maxseconds))
+                else:
+                    print(BColors.FAIL + "Source check of " + GLOBAL_LIST_OBJECT['parent_dir'] + "/" + \
+                    GLOBAL_LIST_OBJECT['file_id'] + " failed! Reason: " + \
+                    str(GLOBAL_LIST_OBJECT['error']) + BColors.ENDC)
+                    FileUtil.write_error_to_file(self, MAIN_OBJ.errorlist)
+                    GLOBAL_LIST_OBJECT['error'] = None
+                    GLOBAL_LIST_OBJECT['source'] = None
+                    FileUtil.remove_first_line(self, file)
+                    time.sleep(random.uniform(RAND_MIN, 2))
             else:
-                print(BColors.FAIL + "Download of " + GLOBAL_LIST_OBJECT['parent_dir'] + "/" + \
-                GLOBAL_LIST_OBJECT['file_id'] + " failed! Reason: " + \
-                str(GLOBAL_LIST_OBJECT['error']) + BColors.ENDC)
-                FileUtil.write_error_to_file(self, MAIN_OBJ.errorlist)
+                if Downloader.process_id(self, GLOBAL_LIST_OBJECT['parent_dir'], \
+                GLOBAL_LIST_OBJECT['file_id'], GLOBAL_LIST_OBJECT['remnant_size']):
+                    FileUtil.add_id_to_downloaded_set(self, GLOBAL_LIST_OBJECT['file_id'])
+                    FileUtil.remove_first_line(self, file)
+                    GLOBAL_LIST_OBJECT['error'] = None
+                    GLOBAL_LIST_OBJECT['remnant_size'] = None
+                    GLOBAL_LIST_OBJECT['download_size'] = None
+                    GLOBAL_LIST_OBJECT['source'] = None
+                    time.sleep(random.uniform(RAND_MIN, MAIN_OBJ.maxseconds))
+                else:
+                    print(BColors.FAIL + "Download of " + GLOBAL_LIST_OBJECT['parent_dir'] + "/" + \
+                    GLOBAL_LIST_OBJECT['file_id'] + " failed! Reason: " + \
+                    str(GLOBAL_LIST_OBJECT['error']) + BColors.ENDC)
+                    FileUtil.write_error_to_file(self, MAIN_OBJ.errorlist)
 
-                GLOBAL_LIST_OBJECT['error'] = None
-                GLOBAL_LIST_OBJECT['remnant_size'] = None
-                GLOBAL_LIST_OBJECT['download_size'] = None
-                FileUtil.remove_first_line(self, file)
-                time.sleep(random.uniform(RAND_MIN, 2))
+                    GLOBAL_LIST_OBJECT['error'] = None
+                    GLOBAL_LIST_OBJECT['remnant_size'] = None
+                    GLOBAL_LIST_OBJECT['download_size'] = None
+                    GLOBAL_LIST_OBJECT['source'] = None
+                    FileUtil.remove_first_line(self, file)
+                    time.sleep(random.uniform(RAND_MIN, 2))
 
             # signal.pause()
         return
@@ -785,6 +809,24 @@ class Downloader:
 
         return False
 
+    def process_id_check_only(self, file_id):
+        """Process the current file_id to populate the source url only"""
+
+        if Downloader.json_query_errored(self, Downloader.gfycat_client_fetcher(self, file_id)):
+            return False
+        # print(BColors.FAIL + "source is: " + \
+        # str(GLOBAL_LIST_OBJECT['source']) + BColors.ENDC)
+
+        if GLOBAL_LIST_OBJECT['source'] is None:
+            return True
+
+        elif "http" not in GLOBAL_LIST_OBJECT['source']:
+            print(BColors.FAIL + "ERROR: no valid http link in: " + \
+                str(GLOBAL_LIST_OBJECT['source']) + BColors.ENDC)
+            return False
+
+        return True
+
 
     def gfycat_client_fetcher(self, arg):
         """Fetches cajax JSON from gfycat,
@@ -811,10 +853,12 @@ class Downloader:
                 GLOBAL_LIST_OBJECT['error'] = myquery['error']
                 return True
 
-            print(BColors.OKGREEN + "MP4 URL is:", \
-            myquery['gfyItem']['mp4Url'], "and its size is:", myquery['gfyItem']['mp4Size'], BColors.ENDC)
+            if not MAIN_OBJ.source_check:
+                print(BColors.OKGREEN + "MP4 URL is:", \
+                myquery['gfyItem']['mp4Url'], "and its size is:", myquery['gfyItem']['mp4Size'], BColors.ENDC)
 
             GLOBAL_LIST_OBJECT['mp4Url'] = myquery['gfyItem']['mp4Url']
+            GLOBAL_LIST_OBJECT['source'] = myquery['gfyItem']['url']
             GLOBAL_LIST_OBJECT['download_size'] = myquery['gfyItem']['mp4Size']
             return False
         except:
