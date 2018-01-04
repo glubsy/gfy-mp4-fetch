@@ -18,6 +18,7 @@ DOWNLOAD_LIST = 'gfyfetch_downloads.txt'
 # "remnant_size": "", "mp4Url": "", "download_size": "", "error": "", "source": ""}
 
 RAND_MIN = 1
+RAND_MAX = 2
 
 class BColors:
     """Color codes for stdout"""

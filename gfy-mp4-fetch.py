@@ -55,7 +55,7 @@ class Main():
         self.original_longest_line = ""
         self.source_check = False
         self.db_list = ""
-        self.loglist = ""
+        self.dl_loglist = ""
 
     def main(self):
         """This is wrong"""
@@ -96,7 +96,7 @@ and retained files by regexp (default diffmerge, falls back to diff on Linux)", 
         "only check source urls and write them to a file", default=False)
         argparser.add_argument("-b", "--dblistpath", dest="db_list", type=str, metavar="path", help=\
         "path to generate DB checks list into (default is $cwd)", default=constants.CWD)
-        argparser.add_argument("-v", "--logpath", dest="loglist", type=str, metavar="path", help=\
+        argparser.add_argument("-v", "--logpath", dest="dl_loglist", type=str, metavar="path", help=\
         "path to generate log of downloads (default is $cwd)", default=constants.CWD)
 
         #TODO: flag to ignore ID if abc.mp4 and abc.webm where already seen when scanning dir
@@ -113,7 +113,7 @@ and retained files by regexp (default diffmerge, falls back to diff on Linux)", 
         MAIN_OBJ.maxseconds = args.maxseconds
         MAIN_OBJ.source_check = args.source_check
         MAIN_OBJ.db_list = str(args.db_list).rstrip("/") + os.sep + constants.DB_CHECKED_LIST
-        MAIN_OBJ.loglist = str(args.loglist).rstrip("/") + os.sep + constants.DOWNLOAD_LIST
+        MAIN_OBJ.dl_loglist = str(args.dl_loglist).rstrip("/") + os.sep + constants.DOWNLOAD_LIST
 
         if args.nodiff:
             MAIN_OBJ.diff_program = None
@@ -223,21 +223,32 @@ Watch out for partially downloaded files!" + BColors.ENDC)
             # print(BColors.OKGREEN + "DEBUG: GLOBAL_OBJECT_LIST:", \
             # str(GLOBAL_LIST_OBJECT) + BColors.ENDC)
 
-            if MAIN_OBJ.source_check:
+            if MAIN_OBJ.source_check: #TODO: cumulate source_check and normal mp4 download!
                 if DBChecker.process_id_check_only(self, GLOBAL_LIST_OBJECT['file_id']):
-                    print(BColors.OKGREEN + "DEBUG: GLOBAL_OBJECT_LIST:", \
-                    str(GLOBAL_LIST_OBJECT) + BColors.ENDC)
+                    # print(BColors.OKBOLD + "DEBUG: GLOBAL_OBJECT_LIST:", \
+                    # str(GLOBAL_LIST_OBJECT) + BColors.ENDC)
 
-                    if DBChecker.is_file_in_uri_in_db(self, GLOBAL_LIST_OBJECT['source']) >= 0:
+                    if DBChecker.is_file_in_uri_in_db(self, GLOBAL_LIST_OBJECT['source']) == 0:
                         #we write url in log and try to download
                         mystring = ("File " + str(GLOBAL_LIST_OBJECT['parent_dir']) + "/" + str(GLOBAL_LIST_OBJECT['file_id'])\
-                        + " has a new source:\n" + str(GLOBAL_LIST_OBJECT['source']) + "\n")
-                        print(BColors.OKGREEN + mystring + "Downloading now" + BColors.ENDC)
+                        + " has a new source:\n" + str(GLOBAL_LIST_OBJECT['source']))
+                        print(BColors.OKGREEN + mystring + " . Downloading now" + BColors.ENDC)
 
-                        FileUtil.write_string_to_file(self, mystring, MAIN_OBJ.loglist)
-                        
-                        if DBChecker.normal_init_download(self, GLOBAL_LIST_OBJECT['source']):
+                        FileUtil.write_string_to_file(self, mystring, MAIN_OBJ.dl_loglist)
+
+                        dl_status = DBChecker.normal_init_download(self, GLOBAL_LIST_OBJECT['source'])
+                        if dl_status == 0:
+                            FileUtil.write_string_to_file(self, "Download OK", MAIN_OBJ.dl_loglist)
+
+                            okmsg = "Suggesting removal of:\n" + GLOBAL_LIST_OBJECT['file_id'] + "\n" + \
+                            "=========================================================================="
+                            FileUtil.write_string_to_file(self, okmsg, MAIN_OBJ.dl_loglist)
+
                             FileUtil.remove_first_line(self, file)
+                        elif dl_status > 0:
+                            FileUtil.write_string_to_file(self, "Download FAILED", MAIN_OBJ.dl_loglist)
+                            FileUtil.remove_first_line(self, file)
+
                     else:
                         FileUtil.remove_first_line(self, file)
                     # Cleaning for next iteration
@@ -248,20 +259,20 @@ Watch out for partially downloaded files!" + BColors.ENDC)
                     print(BColors.FAIL + "Source check of " + GLOBAL_LIST_OBJECT['parent_dir'] + "/" + \
                     GLOBAL_LIST_OBJECT['file_id'] + " failed! Reason: " + \
                     str(GLOBAL_LIST_OBJECT['error']) + BColors.ENDC)
-                    
+
                     FileUtil.write_error_to_file(self, MAIN_OBJ.errorlist)
-                    
+
                     # Cleaning for next iteration
                     GLOBAL_LIST_OBJECT['error'] = None
                     GLOBAL_LIST_OBJECT['source'] = None
                     FileUtil.remove_first_line(self, file)
-                    time.sleep(random.uniform(constants.RAND_MIN, 2))
+                    time.sleep(random.uniform(constants.RAND_MIN, constants.RAND_MAX))
             else:
                 if Downloader.process_id(self, GLOBAL_LIST_OBJECT['parent_dir'], \
                 GLOBAL_LIST_OBJECT['file_id'], GLOBAL_LIST_OBJECT['remnant_size']):
-                    
+
                     FileUtil.add_id_to_downloaded_set(self, GLOBAL_LIST_OBJECT['file_id'])
-                    
+
                     FileUtil.remove_first_line(self, file)
 
                     # Cleaning for next iteration
@@ -274,7 +285,7 @@ Watch out for partially downloaded files!" + BColors.ENDC)
                     print(BColors.FAIL + "Download of " + GLOBAL_LIST_OBJECT['parent_dir'] + "/" + \
                     GLOBAL_LIST_OBJECT['file_id'] + " failed! Reason: " + \
                     str(GLOBAL_LIST_OBJECT['error']) + BColors.ENDC)
-                    
+
                     FileUtil.write_error_to_file(self, MAIN_OBJ.errorlist)
 
                     # Cleaning for next iteration
@@ -283,7 +294,7 @@ Watch out for partially downloaded files!" + BColors.ENDC)
                     GLOBAL_LIST_OBJECT['download_size'] = None
                     GLOBAL_LIST_OBJECT['source'] = None
                     FileUtil.remove_first_line(self, file)
-                    time.sleep(random.uniform(constants.RAND_MIN, 2))
+                    time.sleep(random.uniform(constants.RAND_MIN, constants.RAND_MAX))
 
             # signal.pause()
         return
@@ -445,7 +456,7 @@ class FileUtil:
                             for index, item in enumerate(file_list):
                                 if dName + os.sep + current_file_props[2] in item:
                                     newitem = item + "\t" + mp4size
-                                    file_list[index] = newitem #appending file size 
+                                    file_list[index] = newitem #appending file size
                         count += 1
                     else:
                         if ".mp4" in fileName:
@@ -585,12 +596,15 @@ class FileUtil:
         return True
 
 
-    def write_string_to_file(self, string, file):
+    def write_string_to_file(self, string, file, newline=True):
         """Write string to file, appends newline"""
 
         with open(file, 'a') as file_handler:
-            file_handler.write("%s\n" % string)
-            #file_handler.write("{}\n".format(item))
+            if newline:
+                file_handler.write("%s\n" % string)
+                #file_handler.write("{}\n".format(item))
+            else:
+                file_handler.write(string)
 
 
     def write_error_to_file(self, file):
@@ -943,6 +957,7 @@ class Downloader:
 
         with open(destination, 'wb') as file_handler:
             if TQDM_AVAILABLE:
+                # WARNING: if gfycat decides one day to stop giving content-length in headers... ouch
                 pbar = tqdm(unit="B", total=int(req.headers['Content-Length']))
             for chunk in req.iter_content(chunk_size=chunk_size):
                 if chunk: # filter out keep-alive new chunks
@@ -983,7 +998,6 @@ class DBChecker(object):
     def __init__(self):
         pass
 
-
     def process_id_check_only(self, file_id):
         """Process the current file_id to populate the source url only"""
 
@@ -1010,21 +1024,23 @@ class DBChecker(object):
             return -1
 
         file_noext = DBChecker.isolate_filename_noext(self, url)
-        print("file without ext:", file_noext)
+        # print("DEBUG: file without ext:", file_noext)
         collected_set, collected_count = fdb_query.Get_Set_From_Result(file_noext)
         if collected_count == 0:
+            # nothing found in DB, we can download this new source!
             return 0
 
         result_strings = "File '" + GLOBAL_LIST_OBJECT['parent_dir'] +\
         "/" + GLOBAL_LIST_OBJECT['file_id'] + "' found these sources in DB for " + url +\
         " :\n" + ', '.join(collected_set) + "\n" + \
+        "Suggesting removal of:\n" + GLOBAL_LIST_OBJECT['file_id'] + "\n" + \
         "==========================================================================\n"
-        print(BColors.WARNING + result_strings + BColors.ENDC + "\n" + "Skipping download.")
+
+        print(BColors.WARNING + result_strings + BColors.ENDC + "Skipping download.")
 
         FileUtil.write_string_to_file(self, result_strings, MAIN_OBJ.db_list)
 
         return 1
-
 
 
     def isolate_filename_noext(self, url):
@@ -1048,7 +1064,7 @@ class DBChecker(object):
     def generate_normal_dest_filename(self, download_dir, url):
         """make final filename for file to be written"""
         try_number = 1
-        filename = DBChecker.isolate_filename(self, url) 
+        filename = DBChecker.isolate_filename(self, url)
         download_dest = str(MAIN_OBJ.outputdir + download_dir + os.sep + filename)
 
         while os.path.isfile(download_dest):
@@ -1070,7 +1086,7 @@ class DBChecker(object):
         if "http" not in url:
             print(BColors.FAIL + "ERROR: no valid http link in: " + \
                 url + BColors.ENDC)
-            return False
+            return 1
 
         # Create our download directory if doesn't exist
         SetupClass.setup_download_dir(self, GLOBAL_LIST_OBJECT['parent_dir'])
@@ -1079,13 +1095,13 @@ class DBChecker(object):
         if checksize > 0:
             dest_filesize = os.path.getsize(destination)
             if checksize == dest_filesize:
-                return True
+                return 0
             else:
                 warningmesg = "Warning: downloaded file size is not the same as expected size: " + \
                 checksize + " != " + str(dest_filesize) + " . Removed."
 
                 print(BColors.FAIL + warningmesg + BColors.ENDC)
-                FileUtil.write_string_to_file(self, warningmesg, MAIN_OBJ.loglist)
+                FileUtil.write_string_to_file(self, warningmesg, MAIN_OBJ.dl_loglist)
 
                 if os.path.exists(destination):
                     os.remove(destination)
@@ -1093,9 +1109,9 @@ class DBChecker(object):
         elif checksize == 0:
             print(BColors.WARNING + "Warning: couldn't not verify download size for " + \
             url + " \n Please check the file integrity manually.\n" + BColors.ENDC)
-            return True
+            return 0
 
-        return False
+        return 1
 
 
     def file_downloader(self, url, destination):
@@ -1112,23 +1128,31 @@ class DBChecker(object):
         # url="http://httpbin.org/headers" #for testing
         chunk_size = 1024
 
-        req = request_session.get(url, headers=headers, stream=True)
-        if req.status_code != 200:
-            errormesg = "Error downloading the URL: " + url + \
-                " into " + destination + ". Error was:" + str(req.status_code)
+        # req = request_session.get(url, headers=headers, stream=True)
+        try:
+            with request_session.get(url, headers=headers, stream=True) as req:
+                errormesg = str(req.status_code)
+                if req.status_code != 200:
+                    errormesg = "Error downloading the URL: " + url + \
+                    " into " + destination + ". Error was:" + str(req.status_code)
 
-            if TQDM_AVAILABLE:
-                tqdm.write(BColors.FAIL + errormesg + BColors.ENDC)
+                if TQDM_AVAILABLE:
+                    tqdm.write(BColors.FAIL + errormesg + BColors.ENDC)
 
-                #write error to log
-                FileUtil.write_string_to_file(self, errormesg, MAIN_OBJ.errorlist)
-                return -1
-            else:
-                print(BColors.FAIL + errormesg + BColors.ENDC)
+                    #write error to log
+                    FileUtil.write_string_to_file(self, errormesg, MAIN_OBJ.errorlist)
+                    return -1
+                else:
+                    print(BColors.FAIL + errormesg + BColors.ENDC)
 
-                #write error to log
-                FileUtil.write_string_to_file(self, errormesg, MAIN_OBJ.errorlist)
-                return -1
+                    #write error to log
+                    FileUtil.write_string_to_file(self, errormesg, MAIN_OBJ.errorlist)
+                    return -1
+        except Exception as e:
+            print(e)
+            errormsg = "There was an error connecting to " + url + ": " + str(e)
+            FileUtil.write_string_to_file(self, errormsg, MAIN_OBJ.errorlist)
+            return -1
 
         try:
             dlsize=int(req.headers['Content-Length'])

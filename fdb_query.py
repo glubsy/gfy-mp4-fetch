@@ -71,11 +71,11 @@ def Get_Set_From_Result(word):
         found_count = 0
 
         for row in cur:
-            print("found: ", row[1])
+            #print("found: ", row[1])
             found_set.add(row[1])
             found_count += 1
 
-        print("found_count:", found_count)
+        #print("found_count:", found_count)
         con.close()
         return found_set, found_count
 
