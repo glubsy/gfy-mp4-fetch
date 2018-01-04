@@ -4,8 +4,17 @@ import os
 # import sys
 # import fdb
 # from fdb import services
-import fdb_embedded as fdb
-# from fdb_embedded import services
+from constants import BColors
+
+try:
+    import fdb_embedded as fdb
+    # from fdb_embedded import services
+    FDB_AVAILABLE = True
+except ImportError:
+    FDB_AVAILABLE = False
+
+
+
 
 # Point to our current VVV firebird database (for security2.fdb)
 # os.environ['FIREBIRD'] = '~/INSTALLED/VVV-1.3.0-x86_64/firebird'
@@ -20,6 +29,10 @@ os.environ['FIREBIRD'] = '~/test'
 
 def Get_Set_From_Result(word):
     """Search our FDB for word"""
+
+    if not FDB_AVAILABLE:
+        print(BColors.WARNING + "Warning: fdb_embedded couldn't be imported, skipping checking local database." + BColors.ENDC)
+        return
 
     # con1 = services.connect(user='sysdba', password='masterkey')
     # print("Security file for database is: ", con1.get_security_database_path() + "\n")
@@ -44,7 +57,7 @@ def Get_Set_From_Result(word):
     # 55754
 
     # Look for fields containing word (with any number of chars before and after), if only starting with, use word% instead
-    SELECT = "select * from FILES WHERE FILE_NAME LIKE '%" + word + "%'"
+    SELECT = "select * from FILES WHERE FILE_NAME LIKE '%" + word + ".%'"
 
     # Look for ANY of the words
     # SELECT = "select * from FILES WHERE FILE_NAME LIKE '%word1%' OR FILE_NAME LIKE '%word2%'"
@@ -64,7 +77,7 @@ def Get_Set_From_Result(word):
 
         print("found_count:", found_count)
         con.close()
-        return found_set
+        return found_set, found_count
 
     except Exception as identifier:
         print(identifier)

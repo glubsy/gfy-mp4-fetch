@@ -7,18 +7,20 @@ import subprocess
 # import fnmatch
 import argparse
 import shutil
-#import urllib
+import urllib
 import signal
 import time
 import re
 # import tty
 # import termios
 import random
-from tempfile import gettempdir
 import requests
 # import _thread
 
 import fdb_query
+import gfycat_client
+import constants
+from constants import BColors
 
 try:
     from tqdm import tqdm
@@ -27,21 +29,9 @@ except ImportError:
     TQDM_AVAILABLE = False
 #import json
 
-SED_FOUND = True if os.path.exists(str(shutil.which("sed"))) else False
-
-QUERY_ENDPOINT = 'http://gfycat.com/cajax/get/'
-TMP = gettempdir()
-FILELIST = 'gfyfetch_filelist.txt'
-ERRORLIST = 'gfyfetch_errorlist.txt'
-ORIGINAL_FILELIST = 'gfyfetch_original_file_list.txt'
-ORIGINAL_FILELIST_SELECTED = 'gfyfetch_original_file_list_selected.txt'
-CWD = os.getcwd()
 
 GLOBAL_LIST_OBJECT = {"parent_dir" : "", "file_id": "", \
 "remnant_size": "", "mp4Url": "", "download_size": "", "error": "", "source": ""}
-
-RAND_MIN = 1
-
 
 class Main():
     """Main"""
@@ -64,6 +54,8 @@ class Main():
         self.diff_program = ""
         self.original_longest_line = ""
         self.source_check = False
+        self.db_list = ""
+        self.loglist = ""
 
     def main(self):
         """This is wrong"""
@@ -80,18 +72,18 @@ not recommended." + BColors.ENDC)
         argparser = argparse.ArgumentParser(description=\
         "Crawls a specified directory for gfycat webm/gif and downloads their mp4 equivalents.\n\
         Use ctrl+c once to pause after a download is done, twice to force quit.\n\
-        Errors will be logged in /tmp/gfyfetch_error.txt by default")
+        Errors will be logged in /constants.TMP/gfyfetch_error.txt by default")
 
         group = argparser.add_mutually_exclusive_group()
 
         argparser.add_argument("input", type=str, metavar="INPUT", help=\
         "input directory to scan or file list txt to parse")
         argparser.add_argument("-o", "--outputdir", dest="outputdir", type=str, metavar="path", help=\
-        "target directory for downloads (default is current working dir)", default=CWD)
+        "target directory for downloads (default is current working dir)", default=constants.CWD)
         argparser.add_argument("-l", "--filelist", dest="filelist", type=str, metavar="path", help=\
-        "path to generate file listing into (default is TEMP)", default=TMP)
+        "path to generate file listing into (default is TEMP)", default=constants.TMP)
         argparser.add_argument("-e", "--errorlist", dest="errorlist", metavar="path", type=str, help=\
-        "path to generate file listing into (default is $cwd)", default=CWD)
+        "path to generate file listing into (default is $cwd)", default=constants.CWD)
         argparser.add_argument("-s", "--seconds", dest="maxseconds", type=int, metavar="seconds", help=\
         "maximum number of seconds to wait before next download (default is 7)", default=7)
         group.add_argument("-d", "--diff", dest="diff", type=str, help=\
@@ -102,6 +94,10 @@ and retained files by regexp (default diffmerge, falls back to diff on Linux)", 
         "disable regex scrape difference checks with diff after directory scan", default=False)
         argparser.add_argument("-c", "--source_check", dest="source_check", action='store_true', help=\
         "only check source urls and write them to a file", default=False)
+        argparser.add_argument("-b", "--dblistpath", dest="db_list", type=str, metavar="path", help=\
+        "path to generate DB checks list into (default is $cwd)", default=constants.CWD)
+        argparser.add_argument("-v", "--logpath", dest="loglist", type=str, metavar="path", help=\
+        "path to generate log of downloads (default is $cwd)", default=constants.CWD)
 
         #TODO: flag to ignore ID if abc.mp4 and abc.webm where already seen when scanning dir
 
@@ -110,12 +106,14 @@ and retained files by regexp (default diffmerge, falls back to diff on Linux)", 
 
         MAIN_OBJ.input_dirorlist = args.input
         MAIN_OBJ.outputdir = str(args.outputdir).rstrip("/") + os.sep
-        MAIN_OBJ.filelist = args.filelist + os.sep + FILELIST
-        MAIN_OBJ.errorlist = str(args.errorlist).rstrip("/") + os.sep + ERRORLIST
-        MAIN_OBJ.original_filelist = TMP + os.sep + ORIGINAL_FILELIST
-        MAIN_OBJ.original_filelistselected = TMP + os.sep + ORIGINAL_FILELIST_SELECTED
+        MAIN_OBJ.filelist = args.filelist + os.sep + constants.FILELIST
+        MAIN_OBJ.errorlist = str(args.errorlist).rstrip("/") + os.sep + constants.ERRORLIST
+        MAIN_OBJ.original_filelist = constants.TMP + os.sep + constants.ORIGINAL_FILELIST
+        MAIN_OBJ.original_filelistselected = constants.TMP + os.sep + constants.ORIGINAL_FILELIST_SELECTED
         MAIN_OBJ.maxseconds = args.maxseconds
         MAIN_OBJ.source_check = args.source_check
+        MAIN_OBJ.db_list = str(args.db_list).rstrip("/") + os.sep + constants.DB_CHECKED_LIST
+        MAIN_OBJ.loglist = str(args.loglist).rstrip("/") + os.sep + constants.DOWNLOAD_LIST
 
         if args.nodiff:
             MAIN_OBJ.diff_program = None
@@ -131,7 +129,7 @@ and retained files by regexp (default diffmerge, falls back to diff on Linux)", 
         # "\noriginal_filelist", MAIN_OBJ.original_filelist, \
         # "\noriginal_filelistselected", MAIN_OBJ.original_filelistselected)
 
-        if SetupClass.previous_tmp_file_exists(self):
+        if SetupClass.previous_constants_file_exists(self):
             if not SetupClass.setup_prompt_resume(self):
                 if SetupClass.is_first_arg_dir(self, self.input_dirorlist):
                     SetupClass.setup_use_dir(self, self.input_dirorlist)
@@ -229,42 +227,63 @@ Watch out for partially downloaded files!" + BColors.ENDC)
                 if DBChecker.process_id_check_only(self, GLOBAL_LIST_OBJECT['file_id']):
                     print(BColors.OKGREEN + "DEBUG: GLOBAL_OBJECT_LIST:", \
                     str(GLOBAL_LIST_OBJECT) + BColors.ENDC)
-                    DBChecker.check_if_file_in_uri_in_db(self, GLOBAL_LIST_OBJECT['source'])
-                    FileUtil.remove_first_line(self, file)
+
+                    if DBChecker.is_file_in_uri_in_db(self, GLOBAL_LIST_OBJECT['source']) >= 0:
+                        #we write url in log and try to download
+                        mystring = ("File " + str(GLOBAL_LIST_OBJECT['parent_dir']) + "/" + str(GLOBAL_LIST_OBJECT['file_id'])\
+                        + " has a new source:\n" + str(GLOBAL_LIST_OBJECT['source']) + "\n")
+                        print(BColors.OKGREEN + mystring + "Downloading now" + BColors.ENDC)
+
+                        FileUtil.write_string_to_file(self, mystring, MAIN_OBJ.loglist)
+                        
+                        if DBChecker.normal_init_download(self, GLOBAL_LIST_OBJECT['source']):
+                            FileUtil.remove_first_line(self, file)
+                    else:
+                        FileUtil.remove_first_line(self, file)
+                    # Cleaning for next iteration
                     GLOBAL_LIST_OBJECT['error'] = None
                     GLOBAL_LIST_OBJECT['source'] = None
-                    time.sleep(random.uniform(RAND_MIN, MAIN_OBJ.maxseconds))
+                    time.sleep(random.uniform(constants.RAND_MIN, MAIN_OBJ.maxseconds))
                 else:
                     print(BColors.FAIL + "Source check of " + GLOBAL_LIST_OBJECT['parent_dir'] + "/" + \
                     GLOBAL_LIST_OBJECT['file_id'] + " failed! Reason: " + \
                     str(GLOBAL_LIST_OBJECT['error']) + BColors.ENDC)
+                    
                     FileUtil.write_error_to_file(self, MAIN_OBJ.errorlist)
+                    
+                    # Cleaning for next iteration
                     GLOBAL_LIST_OBJECT['error'] = None
                     GLOBAL_LIST_OBJECT['source'] = None
                     FileUtil.remove_first_line(self, file)
-                    time.sleep(random.uniform(RAND_MIN, 2))
+                    time.sleep(random.uniform(constants.RAND_MIN, 2))
             else:
                 if Downloader.process_id(self, GLOBAL_LIST_OBJECT['parent_dir'], \
                 GLOBAL_LIST_OBJECT['file_id'], GLOBAL_LIST_OBJECT['remnant_size']):
+                    
                     FileUtil.add_id_to_downloaded_set(self, GLOBAL_LIST_OBJECT['file_id'])
+                    
                     FileUtil.remove_first_line(self, file)
+
+                    # Cleaning for next iteration
                     GLOBAL_LIST_OBJECT['error'] = None
                     GLOBAL_LIST_OBJECT['remnant_size'] = None
                     GLOBAL_LIST_OBJECT['download_size'] = None
                     GLOBAL_LIST_OBJECT['source'] = None
-                    time.sleep(random.uniform(RAND_MIN, MAIN_OBJ.maxseconds))
+                    time.sleep(random.uniform(constants.RAND_MIN, MAIN_OBJ.maxseconds))
                 else:
                     print(BColors.FAIL + "Download of " + GLOBAL_LIST_OBJECT['parent_dir'] + "/" + \
                     GLOBAL_LIST_OBJECT['file_id'] + " failed! Reason: " + \
                     str(GLOBAL_LIST_OBJECT['error']) + BColors.ENDC)
+                    
                     FileUtil.write_error_to_file(self, MAIN_OBJ.errorlist)
 
+                    # Cleaning for next iteration
                     GLOBAL_LIST_OBJECT['error'] = None
                     GLOBAL_LIST_OBJECT['remnant_size'] = None
                     GLOBAL_LIST_OBJECT['download_size'] = None
                     GLOBAL_LIST_OBJECT['source'] = None
                     FileUtil.remove_first_line(self, file)
-                    time.sleep(random.uniform(RAND_MIN, 2))
+                    time.sleep(random.uniform(constants.RAND_MIN, 2))
 
             # signal.pause()
         return
@@ -294,16 +313,6 @@ Watch out for partially downloaded files!" + BColors.ENDC)
     #             break
 
 
-class BColors:
-    """Color codes for stdout"""
-    HEADER = '\033[95m'
-    OKBLUE = '\033[94m'
-    OKGREEN = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
-    UNDERLINE = '\033[4m'
 
 class SetupClass:
     """Setting up various things before main loop"""
@@ -345,7 +354,7 @@ class SetupClass:
 
         if not MAIN_OBJ.has_text_listing_been_generated:
             #only checking input file in case it's not the usual name
-            if FILELIST not in file:
+            if constants.FILELIST not in file:
                 if not FileUtil.rewrite_file_listing(self, file):
                     print(BColors.FAIL + "ERROR parsing the file listing supplied" + BColors.ENDC)
                     exit(1)
@@ -363,7 +372,7 @@ class SetupClass:
         return False
 
 
-    def previous_tmp_file_exists(self):
+    def previous_constants_file_exists(self):
         """Checks if a previously generated file listing is in default location"""
         if os.path.isfile(MAIN_OBJ.filelist):
             return True
@@ -577,7 +586,7 @@ class FileUtil:
 
 
     def write_string_to_file(self, string, file):
-        """Write string to file"""
+        """Write string to file, appends newline"""
 
         with open(file, 'a') as file_handler:
             file_handler.write("%s\n" % string)
@@ -616,7 +625,7 @@ class FileUtil:
         First, check if sed exists on the PATH
         or remove first line ourselves manually"""
 
-        if not SED_FOUND:
+        if not constants.SED_FOUND:
             with open(file, 'r') as file_handler_in:
                 data = file_handler_in.read().splitlines(True)
             with open(file, 'w') as file_handler_out:
@@ -817,11 +826,11 @@ class Downloader:
     def gfycat_client_fetcher(self, arg):
         """Fetches cajax JSON from gfycat,
         returns False on any error, True on success (ie. found)"""
-        client = GfycatClient()
+        client = gfycat_client.GfycatClient()
 
         try:
             myquery = client.query_gfy(arg) #dict
-        except GfycatClientError as error:
+        except gfycat_client.GfycatClientError as error:
             print(error.error_message)
             print(error.status_code)
             return
@@ -965,11 +974,15 @@ class Downloader:
         return download_dest
 
 
+
+
+
 class DBChecker(object):
     """Checks if files are already in local firebird (Virtual Volumes View) DB"""
 
     def __init__(self):
         pass
+
 
     def process_id_check_only(self, file_id):
         """Process the current file_id to populate the source url only"""
@@ -989,55 +1002,156 @@ class DBChecker(object):
 
         return True
 
-    def check_if_file_in_uri_in_db(self, url):
+
+    def is_file_in_uri_in_db(self, url):
         """isolate file in url and query firebird dB"""
+
         if url is None:
-            return
+            return -1
 
         file_noext = DBChecker.isolate_filename_noext(self, url)
         print("file without ext:", file_noext)
-        fdb_query.Get_Set_From_Result(file_noext)
+        collected_set, collected_count = fdb_query.Get_Set_From_Result(file_noext)
+        if collected_count == 0:
+            return 0
+
+        result_strings = "File '" + GLOBAL_LIST_OBJECT['parent_dir'] +\
+        "/" + GLOBAL_LIST_OBJECT['file_id'] + "' found these sources in DB for " + url +\
+        " :\n" + ', '.join(collected_set) + "\n" + \
+        "==========================================================================\n"
+        print(BColors.WARNING + result_strings + BColors.ENDC + "\n" + "Skipping download.")
+
+        FileUtil.write_string_to_file(self, result_strings, MAIN_OBJ.db_list)
+
+        return 1
+
+
 
     def isolate_filename_noext(self, url):
         """remove url, keep file with no ext"""
 
         fullurl = url[url.rfind("/")+1:]
         # return os.path.basename(fullurl)
+        fullurl = urllib.parse.unquote(fullurl, encoding='utf-8', errors='replace')
         return os.path.splitext(fullurl)[0]
 
 
+    def isolate_filename(self, url):
+        """remove url, keep file with no ext"""
 
-class GfycatClient(object):
-    """credits to https://github.com/ankeshanand/py-gfycat/"""
+        fullurl = url[url.rfind("/")+1:]
+        # return os.path.basename(fullurl)
+        fullurl = urllib.parse.unquote(fullurl, encoding='utf-8', errors='replace')
+        return fullurl
 
-    def __init__(self):
-        pass
 
-    def query_gfy(self, gfyname):
-        """Query a gfy name for URLs and more information."""
+    def generate_normal_dest_filename(self, download_dir, url):
+        """make final filename for file to be written"""
+        try_number = 1
+        filename = DBChecker.isolate_filename(self, url) 
+        download_dest = str(MAIN_OBJ.outputdir + download_dir + os.sep + filename)
+
+        while os.path.isfile(download_dest):
+            download_dest = MAIN_OBJ.outputdir + str(download_dir) + os.sep + \
+            filename + "_" + str(try_number) #FIXME: .mp4.1 not so great, too lazy
+            try_number += 1
+            if not os.path.isfile(download_dest):
+                # We have finally found an unused filename, we keep it
+                break
+        return download_dest
+
+
+    def normal_init_download(self, url):
+        """starts downloading normal urls (not gfycat's)"""
+
+        destination = DBChecker.generate_normal_dest_filename(self, \
+        GLOBAL_LIST_OBJECT['parent_dir'], url)
+
+        if "http" not in url:
+            print(BColors.FAIL + "ERROR: no valid http link in: " + \
+                url + BColors.ENDC)
+            return False
+
+        # Create our download directory if doesn't exist
+        SetupClass.setup_download_dir(self, GLOBAL_LIST_OBJECT['parent_dir'])
+
+        checksize = DBChecker.file_downloader(self, url, destination)
+        if checksize > 0:
+            dest_filesize = os.path.getsize(destination)
+            if checksize == dest_filesize:
+                return True
+            else:
+                warningmesg = "Warning: downloaded file size is not the same as expected size: " + \
+                checksize + " != " + str(dest_filesize) + " . Removed."
+
+                print(BColors.FAIL + warningmesg + BColors.ENDC)
+                FileUtil.write_string_to_file(self, warningmesg, MAIN_OBJ.loglist)
+
+                if os.path.exists(destination):
+                    os.remove(destination)
+
+        elif checksize == 0:
+            print(BColors.WARNING + "Warning: couldn't not verify download size for " + \
+            url + " \n Please check the file integrity manually.\n" + BColors.ENDC)
+            return True
+
+        return False
+
+
+    def file_downloader(self, url, destination):
+        """Downloads the file at the url passed.
+            returns 0 if error occured, else file size"""
+
+        print("Destination: ", destination)
+        headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:55.0) \
+        Gecko/20100101 Firefox/55.0'}
         request_session = requests.Session()
         request_session.headers.update({'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; \
-rv:55.0) Gecko/20100101 Firefox/54.0'})
-        req = request_session.get(QUERY_ENDPOINT + gfyname)
+        rv:55.0) Gecko/20100101 Firefox/55.0'})
+
+        # url="http://httpbin.org/headers" #for testing
+        chunk_size = 1024
+
+        req = request_session.get(url, headers=headers, stream=True)
         if req.status_code != 200:
-            raise GfycatClientError('Unable to query gfycay for the file',
-                                    req.status_code)
+            errormesg = "Error downloading the URL: " + url + \
+                " into " + destination + ". Error was:" + str(req.status_code)
 
-        return req.json()
+            if TQDM_AVAILABLE:
+                tqdm.write(BColors.FAIL + errormesg + BColors.ENDC)
 
+                #write error to log
+                FileUtil.write_string_to_file(self, errormesg, MAIN_OBJ.errorlist)
+                return -1
+            else:
+                print(BColors.FAIL + errormesg + BColors.ENDC)
 
-class GfycatClientError(Exception):
-    """credits to https://github.com/ankeshanand/py-gfycat/"""
+                #write error to log
+                FileUtil.write_string_to_file(self, errormesg, MAIN_OBJ.errorlist)
+                return -1
 
-    def __init__(self, error_message, status_code=None):
-        self.status_code = status_code
-        self.error_message = error_message
+        try:
+            dlsize=int(req.headers['Content-Length'])
+        except Exception:
+            dlsize=int(0)
 
-    def __str__(self):
-        if self.status_code:
-            return "(%s) %s" % (self.status_code, self.error_message)
+        with open(destination, 'wb') as file_handler:
+            if TQDM_AVAILABLE:
+                pbar = tqdm(unit="B", total=dlsize)
+            for chunk in req.iter_content(chunk_size=chunk_size):
+                if chunk: # filter out keep-alive new chunks
+                    pbar.update(len(chunk))
+                    file_handler.write(chunk)
+        if TQDM_AVAILABLE:
+            pbar.close()
+            tqdm.write(BColors.BOLD + "\nDownload of " + url + " into: " + \
+            destination + " completed!" + BColors.ENDC)
+        else:
+            print(BColors.BOLD + "\nDownload of " + url + " into: " + \
+            destination + " completed!" + BColors.ENDC)
+        # return destination
+        return dlsize
 
-        return self.error_message
 
 if __name__ == "__main__":
     MAIN_OBJ = Main()
