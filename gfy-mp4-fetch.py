@@ -1110,13 +1110,13 @@ class DBChecker(object):
             print(BColors.WARNING + "Warning: couldn't not verify download size for " + \
             url + " \n Please check the file integrity manually.\n" + BColors.ENDC)
             return 0
-
+        
         return 1
 
 
     def file_downloader(self, url, destination):
         """Downloads the file at the url passed.
-            returns 0 if error occured, else file size"""
+            returns -1 if error occured, else file size or just zero"""
 
         print("Destination: ", destination)
         headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:55.0) \
@@ -1134,23 +1134,22 @@ class DBChecker(object):
                 errormesg = str(req.status_code)
                 if req.status_code != 200:
                     errormesg = "Error downloading the URL: " + url + \
-                    " into " + destination + ". Error was:" + str(req.status_code)
+                    " for file " + GLOBAL_LIST_OBJECT['file_id'] + ". Error was:" + str(req.status_code)
 
-                if TQDM_AVAILABLE:
-                    tqdm.write(BColors.FAIL + errormesg + BColors.ENDC)
+                    if TQDM_AVAILABLE:
+                        tqdm.write(BColors.FAIL + errormesg + BColors.ENDC)
 
-                    #write error to log
-                    FileUtil.write_string_to_file(self, errormesg, MAIN_OBJ.errorlist)
-                    return -1
-                else:
-                    print(BColors.FAIL + errormesg + BColors.ENDC)
+                        #write error to log
+                        FileUtil.write_string_to_file(self, errormesg, MAIN_OBJ.errorlist)
+                    else:
+                        print(BColors.FAIL + errormesg + BColors.ENDC)
 
-                    #write error to log
-                    FileUtil.write_string_to_file(self, errormesg, MAIN_OBJ.errorlist)
+                        #write error to log
+                        FileUtil.write_string_to_file(self, errormesg, MAIN_OBJ.errorlist)
                     return -1
         except Exception as e:
-            print(e)
-            errormsg = "There was an error connecting to " + url + ": " + str(e)
+            print("Exception in request:", e)
+            errormsg = "There was an error connecting to " + url + " for file " + GLOBAL_LIST_OBJECT['file_id'] + " : " + str(e)
             FileUtil.write_string_to_file(self, errormsg, MAIN_OBJ.errorlist)
             return -1
 
