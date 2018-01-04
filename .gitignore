@@ -1,2 +1,2 @@
-os.path
 .vscode/*
+__pycache__

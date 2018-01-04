@@ -12,9 +12,10 @@ To put it simply:
 * Downloads the file to disk according to the directory layout of local files
 
 # Dependencies (optional)
-tqdm python lib for progress bar (pip install tqdm)
-diffmerge for checking regexp'ed scraped files retained (otherwise will use diff)
-vim or any text editor to edit download queue if needed
+tqdm python lib for progress bar (pip install tqdm) [optional]
+diffmerge for checking regexp'ed scraped files retained (otherwise will use diff) [optional]
+vim or any text editor to edit download queue if needed [optional]
+https://github.com/andrewleech/fdb_embedded to check against VVV's databases [optional]
 
 # Usage:
 gfyfetch.py [DIR|TXT]

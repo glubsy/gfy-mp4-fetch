@@ -3,6 +3,7 @@
 import os
 import sys
 import subprocess
+# import urlparse
 # import fnmatch
 import argparse
 import shutil
@@ -16,6 +17,8 @@ import random
 from tempfile import gettempdir
 import requests
 # import _thread
+
+import fdb_query
 
 try:
     from tqdm import tqdm
@@ -223,9 +226,10 @@ Watch out for partially downloaded files!" + BColors.ENDC)
             # str(GLOBAL_LIST_OBJECT) + BColors.ENDC)
 
             if MAIN_OBJ.source_check:
-                if Downloader.process_id_check_only(self, GLOBAL_LIST_OBJECT['file_id']):
+                if DBChecker.process_id_check_only(self, GLOBAL_LIST_OBJECT['file_id']):
                     print(BColors.OKGREEN + "DEBUG: GLOBAL_OBJECT_LIST:", \
                     str(GLOBAL_LIST_OBJECT) + BColors.ENDC)
+                    DBChecker.check_if_file_in_uri_in_db(self, GLOBAL_LIST_OBJECT['source'])
                     FileUtil.remove_first_line(self, file)
                     GLOBAL_LIST_OBJECT['error'] = None
                     GLOBAL_LIST_OBJECT['source'] = None
@@ -809,24 +813,6 @@ class Downloader:
 
         return False
 
-    def process_id_check_only(self, file_id):
-        """Process the current file_id to populate the source url only"""
-
-        if Downloader.json_query_errored(self, Downloader.gfycat_client_fetcher(self, file_id)):
-            return False
-        # print(BColors.FAIL + "source is: " + \
-        # str(GLOBAL_LIST_OBJECT['source']) + BColors.ENDC)
-
-        if GLOBAL_LIST_OBJECT['source'] is None:
-            return True
-
-        elif "http" not in GLOBAL_LIST_OBJECT['source']:
-            print(BColors.FAIL + "ERROR: no valid http link in: " + \
-                str(GLOBAL_LIST_OBJECT['source']) + BColors.ENDC)
-            return False
-
-        return True
-
 
     def gfycat_client_fetcher(self, arg):
         """Fetches cajax JSON from gfycat,
@@ -977,6 +963,48 @@ class Downloader:
                 # We have finally found an unused filename, we keep it
                 break
         return download_dest
+
+
+class DBChecker(object):
+    """Checks if files are already in local firebird (Virtual Volumes View) DB"""
+
+    def __init__(self):
+        pass
+
+    def process_id_check_only(self, file_id):
+        """Process the current file_id to populate the source url only"""
+
+        if Downloader.json_query_errored(self, Downloader.gfycat_client_fetcher(self, file_id)):
+            return False
+        # print(BColors.FAIL + "source is: " + \
+        # str(GLOBAL_LIST_OBJECT['source']) + BColors.ENDC)
+
+        if GLOBAL_LIST_OBJECT['source'] is None:
+            return True
+
+        elif "http" not in GLOBAL_LIST_OBJECT['source']:
+            print(BColors.FAIL + "ERROR: no valid http link in: " + \
+                str(GLOBAL_LIST_OBJECT['source']) + BColors.ENDC)
+            return False
+
+        return True
+
+    def check_if_file_in_uri_in_db(self, url):
+        """isolate file in url and query firebird dB"""
+        if url is None:
+            return
+
+        file_noext = DBChecker.isolate_filename_noext(self, url)
+        print("file without ext:", file_noext)
+        fdb_query.Get_Set_From_Result(file_noext)
+
+    def isolate_filename_noext(self, url):
+        """remove url, keep file with no ext"""
+
+        fullurl = url[url.rfind("/")+1:]
+        # return os.path.basename(fullurl)
+        return os.path.splitext(fullurl)[0]
+
 
 
 class GfycatClient(object):
