@@ -253,7 +253,10 @@ Watch out for partially downloaded files!" + BColors.ENDC)
 
                             FileUtil.remove_first_line(self, file)
                         elif dl_status > 0:
-                            FileUtil.write_string_to_file(self, "Download FAILED", MAIN_OBJ.dl_loglist)
+                            FileUtil.write_string_to_file(self, \
+                            str("Download FAILED\n" + \
+                            "=========================================================================="), \
+                            MAIN_OBJ.dl_loglist)
                             FileUtil.remove_first_line(self, file)
 
                     else:
@@ -1189,7 +1192,7 @@ class DBChecker(object):
 
         except Exception as e:
             print(BColors.FAIL, "Error in request:", e, BColors.ENDC)
-            errormsg = "There was an error connecting to " + url + " for file " + GLOBAL_LIST_OBJECT['parent_dir'] + "/" + GLOBAL_LIST_OBJECT['file_id'] + " : " + str(e)
+            errormsg = "There was an error connecting to " + url + " for file " + GLOBAL_LIST_OBJECT['parent_dir'] + "/" + GLOBAL_LIST_OBJECT['file_id'] + " : " + str(e) + "\n"
             FileUtil.write_string_to_file(self, errormsg, MAIN_OBJ.errorlist)
             return -1
 
