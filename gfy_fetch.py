@@ -54,6 +54,8 @@ class Main():
         self.diff_program = ""
         self.original_longest_line = ""
         self.source_check = False
+        self.dbpath = ""
+        self.dbfile = ""
         self.db_list = ""
         self.dl_loglist = ""
 
@@ -92,8 +94,9 @@ and retained files by regexp (default diffmerge, falls back to diff on Linux)", 
         metavar=("program", "args"), nargs="+", default=("diffmerge", ""))
         group.add_argument("--nodiff", dest="nodiff", action='store_true', help=\
         "disable regex scrape difference checks with diff after directory scan", default=False)
-        argparser.add_argument("-c", "--source_check", dest="source_check", action='store_true', help=\
-        "only check source urls and write them to a file", default=False)
+        argparser.add_argument("-c", "--source_check", dest="source_check", type=str, metavar="path", help=\
+        "path to VVV Firebird database file to check against for sources (security2.fdb in same dir)\n\
+        ie: ~/mydir/db.vvv", default="")
         argparser.add_argument("-b", "--dblistpath", dest="db_list", type=str, metavar="path", help=\
         "path to generate DB checks list into (default is $cwd)", default=constants.CWD)
         argparser.add_argument("-v", "--logpath", dest="dl_loglist", type=str, metavar="path", help=\
@@ -111,7 +114,7 @@ and retained files by regexp (default diffmerge, falls back to diff on Linux)", 
         MAIN_OBJ.original_filelist = constants.TMP + os.sep + constants.ORIGINAL_FILELIST
         MAIN_OBJ.original_filelistselected = constants.TMP + os.sep + constants.ORIGINAL_FILELIST_SELECTED
         MAIN_OBJ.maxseconds = args.maxseconds
-        MAIN_OBJ.source_check = args.source_check
+        MAIN_OBJ.dbfile = args.source_check #TODO: add a separate arg for separate path holding security2.fdb
         MAIN_OBJ.db_list = str(args.db_list).rstrip("/") + os.sep + constants.DB_CHECKED_LIST
         MAIN_OBJ.dl_loglist = str(args.dl_loglist).rstrip("/") + os.sep + constants.DOWNLOAD_LIST
 
@@ -122,12 +125,16 @@ and retained files by regexp (default diffmerge, falls back to diff on Linux)", 
             MAIN_OBJ.diff_program = (str(diffargs["diff"][0]).split())
             # MAIN_OBJ.diff_program = args.diff[0]
 
+        if MAIN_OBJ.dbfile:
+            if not os.path.isfile(MAIN_OBJ.dbfile):
+                print(BColors.FAIL + "Error loading DB! " + MAIN_OBJ.dbfile \
+                + " is not a valid file." + BColors.ENDC)
+            else:
+                MAIN_OBJ.dbpath = os.path.split(MAIN_OBJ.dbfile)[0]
+                if fdb_query.FDBquery.setup_environmentvars(self, MAIN_OBJ.dbpath, MAIN_OBJ.dbfile):
+                    MAIN_OBJ.source_check = True
+    
         #TODO: add extension to filter (only webm, only mp4, only gif, all)
-
-        # print("ARGUMENTS:", "\ninput_dirorlist", MAIN_OBJ.outputdir, "\noutputdir", \
-        # MAIN_OBJ.outputdir, "\nfilelist", MAIN_OBJ.filelist, "\nerrorlist", MAIN_OBJ.errorlist,\
-        # "\noriginal_filelist", MAIN_OBJ.original_filelist, \
-        # "\noriginal_filelistselected", MAIN_OBJ.original_filelistselected)
 
         if SetupClass.previous_constants_file_exists(self):
             if not SetupClass.setup_prompt_resume(self):
@@ -1025,7 +1032,7 @@ class DBChecker(object):
 
         file_noext = DBChecker.isolate_filename_noext(self, url)
         # print("DEBUG: file without ext:", file_noext)
-        collected_set, collected_count = fdb_query.Get_Set_From_Result(file_noext)
+        collected_set, collected_count = fdb_query.FDBquery.get_set_from_result(self, file_noext)
         if collected_count == 0:
             # nothing found in DB, we can download this new source!
             return 0
@@ -1165,11 +1172,11 @@ class DBChecker(object):
                                 file_handler.write(chunk)
                     if TQDM_AVAILABLE:
                         pbar.close()
-                        tqdm.write(BColors.BOLD + "\nDownload of " + url + " into: " + \
-                        destination + " completed!" + BColors.ENDC)
+                        tqdm.write(BColors.BOLD + "\nDownload of " + url + "\ninto:\n" + \
+                        destination + "\ncompleted!" + BColors.ENDC)
                     else:
-                        print(BColors.BOLD + "\nDownload of " + url + " into: " + \
-                        destination + " completed!" + BColors.ENDC)
+                        print(BColors.BOLD + "\nDownload of " + url + "\ninto:\n" + \
+                        destination + "\ncompleted!" + BColors.ENDC)
                     # return destination
                     return dlsize if dlsize is not None else 0
 
@@ -1182,7 +1189,7 @@ class DBChecker(object):
 
         except Exception as e:
             print(BColors.FAIL, "Error in request:", e, BColors.ENDC)
-            errormsg = "There was an error connecting to " + url + " for file " + GLOBAL_LIST_OBJECT['parent_dir'] +  GLOBAL_LIST_OBJECT['file_id'] + " : " + str(e)
+            errormsg = "There was an error connecting to " + url + " for file " + GLOBAL_LIST_OBJECT['parent_dir'] + "/" + GLOBAL_LIST_OBJECT['file_id'] + " : " + str(e)
             FileUtil.write_string_to_file(self, errormsg, MAIN_OBJ.errorlist)
             return -1
 
