@@ -51,16 +51,17 @@ def Get_Set_From_Result(word):
     # "FILE_NAME, FILE_EXT, FILE_SIZE, FILE_DATETIME, PATH_FILE_ID, PATH_ID, FILE_DESCRIPTION) VALUES ("
 
     # Look for fields containing word (with any number of chars before and after), if only starting with, use word% instead
-    SELECT = "select * from FILES WHERE FILE_NAME LIKE '%" + word + ".%'" # adding period to include start of extension
+    SELECT = "select * from FILES WHERE FILE_NAME LIKE '%(?).%'" # adding period to include start of extension
 
     # Look for ANY of the words
     # SELECT = "select * from FILES WHERE FILE_NAME LIKE '%word1%' OR FILE_NAME LIKE '%word2%'"
 
     # Look for BOTH words to be present
     # SELECT = "select * from FILES WHERE FILE_NAME LIKE '%word1%' AND FILE_NAME LIKE '%word2%'"
-
+    wordparam = list()
+    wordparam.append(word) #apparently we need a list or tuple for parmeters here
     try:
-        cur.execute(SELECT)
+        cur.execute(SELECT, wordparam) #using parameters for auto-sanitization
         found_set = set()
         found_count = 0
 
@@ -70,12 +71,13 @@ def Get_Set_From_Result(word):
             found_count += 1
 
         #print("found_count:", found_count)
-        con.close()
+        # con.close()
         return found_set, found_count
 
     except Exception as identifier:
-        print(identifier)
-        return
+        errormesg = "Error while looking up: " + word + "\n" + str(identifier)
+        print(BColors.FAIL + errormesg + BColors.ENDC)
+        return found_set, found_count
 
 
 
