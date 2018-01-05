@@ -232,7 +232,7 @@ Watch out for partially downloaded files!" + BColors.ENDC)
                         #we write url in log and try to download
                         mystring = ("File " + str(GLOBAL_LIST_OBJECT['parent_dir']) + "/" + str(GLOBAL_LIST_OBJECT['file_id'])\
                         + " has a new source:\n" + str(GLOBAL_LIST_OBJECT['source']))
-                        print(BColors.OKGREEN + mystring + " . Downloading now" + BColors.ENDC)
+                        print(BColors.WARNING + mystring + " . Downloading now" + BColors.ENDC)
 
                         FileUtil.write_string_to_file(self, mystring, MAIN_OBJ.dl_loglist)
 
@@ -975,7 +975,7 @@ class Downloader:
 
 
     def generate_dest_filename(self, download_dir, file_id):
-        """make final filename for file to be written"""
+        """make final filename with full path for file to be written"""
         try_number = 1
         download_dest = MAIN_OBJ.outputdir + download_dir + os.sep + file_id + ".mp4"
 
@@ -1036,7 +1036,7 @@ class DBChecker(object):
         "Suggesting removal of:\n" + GLOBAL_LIST_OBJECT['file_id'] + "\n" + \
         "==========================================================================\n"
 
-        print(BColors.WARNING + result_strings + BColors.ENDC + "Skipping download.")
+        print(BColors.OKGREEN + result_strings + BColors.ENDC + "Skipping download.")
 
         FileUtil.write_string_to_file(self, result_strings, MAIN_OBJ.db_list)
 
@@ -1065,10 +1065,10 @@ class DBChecker(object):
         """make final filename for file to be written"""
         try_number = 1
         filename = DBChecker.isolate_filename(self, url)
-        download_dest = str(MAIN_OBJ.outputdir + download_dir + os.sep + filename)
+        download_dest = MAIN_OBJ.outputdir + download_dir + os.sep + filename
 
         while os.path.isfile(download_dest):
-            download_dest = MAIN_OBJ.outputdir + str(download_dir) + os.sep + \
+            download_dest = MAIN_OBJ.outputdir + download_dir + os.sep + \
             filename + "_" + str(try_number) #FIXME: .mp4.1 not so great, too lazy
             try_number += 1
             if not os.path.isfile(download_dest):
@@ -1097,20 +1097,21 @@ class DBChecker(object):
             if checksize == dest_filesize:
                 return 0
             else:
-                warningmesg = "Warning: downloaded file size is not the same as expected size: " + \
-                checksize + " != " + str(dest_filesize) + " . Removed."
+                warningmesg = "Warning: downloaded file size for " + str(destination) + " is not the same as expected size! expected: " + \
+                str(checksize) + " != actual: " + str(dest_filesize) + " . Removed."
 
                 print(BColors.FAIL + warningmesg + BColors.ENDC)
                 FileUtil.write_string_to_file(self, warningmesg, MAIN_OBJ.dl_loglist)
 
                 if os.path.exists(destination):
+                    print(BColors.FAIL + "Removed: " + destination + BColors.ENDC)
                     os.remove(destination)
 
         elif checksize == 0:
             print(BColors.WARNING + "Warning: couldn't not verify download size for " + \
             url + " \n Please check the file integrity manually.\n" + BColors.ENDC)
             return 0
-        
+
         return 1
 
 
@@ -1147,33 +1148,44 @@ class DBChecker(object):
                         #write error to log
                         FileUtil.write_string_to_file(self, errormesg, MAIN_OBJ.errorlist)
                     return -1
+
+                try:
+                    dlsize=int(req.headers['Content-Length'])
+                except Exception as e:
+                    print("Error getting content-length in header: ", str(e))
+                    dlsize=None
+
+                try:
+                    with open(destination, 'wb') as file_handler:
+                        if TQDM_AVAILABLE:
+                            pbar = tqdm(unit="B", total=dlsize)
+                        for chunk in req.iter_content(chunk_size=chunk_size):
+                            if chunk: # filter out keep-alive new chunks
+                                pbar.update(len(chunk))
+                                file_handler.write(chunk)
+                    if TQDM_AVAILABLE:
+                        pbar.close()
+                        tqdm.write(BColors.BOLD + "\nDownload of " + url + " into: " + \
+                        destination + " completed!" + BColors.ENDC)
+                    else:
+                        print(BColors.BOLD + "\nDownload of " + url + " into: " + \
+                        destination + " completed!" + BColors.ENDC)
+                    # return destination
+                    return dlsize if dlsize is not None else 0
+
+                except Exception as e:
+                    print(BColors.FAIL, "Error while downloading file! ", e.with_traceback, BColors.ENDC)
+                    FileUtil.write_string_to_file(self, "Download FAILED", MAIN_OBJ.dl_loglist)
+                    return -1
+
         except Exception as e:
             print("Exception in request:", e)
             errormsg = "There was an error connecting to " + url + " for file " + GLOBAL_LIST_OBJECT['file_id'] + " : " + str(e)
             FileUtil.write_string_to_file(self, errormsg, MAIN_OBJ.errorlist)
             return -1
 
-        try:
-            dlsize=int(req.headers['Content-Length'])
-        except Exception:
-            dlsize=int(0)
 
-        with open(destination, 'wb') as file_handler:
-            if TQDM_AVAILABLE:
-                pbar = tqdm(unit="B", total=dlsize)
-            for chunk in req.iter_content(chunk_size=chunk_size):
-                if chunk: # filter out keep-alive new chunks
-                    pbar.update(len(chunk))
-                    file_handler.write(chunk)
-        if TQDM_AVAILABLE:
-            pbar.close()
-            tqdm.write(BColors.BOLD + "\nDownload of " + url + " into: " + \
-            destination + " completed!" + BColors.ENDC)
-        else:
-            print(BColors.BOLD + "\nDownload of " + url + " into: " + \
-            destination + " completed!" + BColors.ENDC)
-        # return destination
-        return dlsize
+
 
 
 if __name__ == "__main__":
