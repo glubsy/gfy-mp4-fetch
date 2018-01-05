@@ -232,7 +232,7 @@ Watch out for partially downloaded files!" + BColors.ENDC)
                         #we write url in log and try to download
                         mystring = ("File " + str(GLOBAL_LIST_OBJECT['parent_dir']) + "/" + str(GLOBAL_LIST_OBJECT['file_id'])\
                         + " has a new source:\n" + str(GLOBAL_LIST_OBJECT['source']))
-                        print(BColors.WARNING + mystring + " . Downloading now" + BColors.ENDC)
+                        print(BColors.WARNING + mystring + "\nDownloading now" + BColors.ENDC)
 
                         FileUtil.write_string_to_file(self, mystring, MAIN_OBJ.dl_loglist)
 
@@ -1033,11 +1033,11 @@ class DBChecker(object):
         result_strings = "File '" + GLOBAL_LIST_OBJECT['parent_dir'] +\
         "/" + GLOBAL_LIST_OBJECT['file_id'] + "' found these sources in DB for " + url +\
         " :\n" + ', '.join(collected_set) + "\n" + \
-        "Suggesting removal of:\n" + GLOBAL_LIST_OBJECT['file_id'] + "\n" + \
-        "==========================================================================\n"
+        "Suggesting removal of:\n" + GLOBAL_LIST_OBJECT['file_id'] + "\n"
 
         print(BColors.OKGREEN + result_strings + BColors.ENDC + "Skipping download.")
 
+        result_strings += "==========================================================================\n"
         FileUtil.write_string_to_file(self, result_strings, MAIN_OBJ.db_list)
 
         return 1
@@ -1108,8 +1108,8 @@ class DBChecker(object):
                     os.remove(destination)
 
         elif checksize == 0:
-            print(BColors.WARNING + "Warning: couldn't not verify download size for " + \
-            url + " \n Please check the file integrity manually.\n" + BColors.ENDC)
+            print(BColors.WARNING + "Warning: couldn't not verify download size for \n" + \
+            url + " \nPlease check the file integrity manually." + BColors.ENDC)
             return 0
 
         return 1
@@ -1175,12 +1175,14 @@ class DBChecker(object):
 
                 except Exception as e:
                     print(BColors.FAIL, "Error while downloading file! ", e.with_traceback, BColors.ENDC)
-                    FileUtil.write_string_to_file(self, "Download FAILED", MAIN_OBJ.dl_loglist)
+                    FileUtil.write_string_to_file(self, str("Download FAILED" + \
+                    "\n=========================================================================="
+                    ), MAIN_OBJ.dl_loglist)
                     return -1
 
         except Exception as e:
-            print("Exception in request:", e)
-            errormsg = "There was an error connecting to " + url + " for file " + GLOBAL_LIST_OBJECT['file_id'] + " : " + str(e)
+            print(BColors.FAIL, "Error in request:", e, BColors.ENDC)
+            errormsg = "There was an error connecting to " + url + " for file " + GLOBAL_LIST_OBJECT['parent_dir'] +  GLOBAL_LIST_OBJECT['file_id'] + " : " + str(e)
             FileUtil.write_string_to_file(self, errormsg, MAIN_OBJ.errorlist)
             return -1
 
