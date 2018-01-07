@@ -1160,15 +1160,20 @@ class DBChecker(object):
                     return -1
 
                 try:
-                    dlsize=int(req.headers['Content-Length'])
+                    # dlsize = 0
+                    for key, value in req.headers.items():
+                        if "content-length" in key:
+                            mysize = (int(value)/1000000)
+                            print("File size: " + str(mysize) + "MB")
+                            dlsize = int(value)
                 except Exception as e:
                     print("Error getting content-length in header: ", str(e))
-                    dlsize=None
+                    dlsize = None
 
                 try:
                     with open(destination, 'wb') as file_handler:
                         if TQDM_AVAILABLE:
-                            pbar = tqdm(unit="B", total=dlsize)
+                            pbar = tqdm(unit="KB", total=dlsize)
                         for chunk in req.iter_content(chunk_size=chunk_size):
                             if chunk: # filter out keep-alive new chunks
                                 pbar.update(len(chunk))
