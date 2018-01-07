@@ -76,6 +76,8 @@ def main():
         # + os.sep + CURRENT_TUPLE['url'].split("/")[-1]))
         if reqret == 0:
             write_success_to_log(OUTPUTLIST)
+        elif reqret == -1:
+            write_failure_to_log(OUTPUTLIST, -1)
         else: #404 or something
             write_failure_to_log(OUTPUTLIST, reqret)
         remove_first_two_lines(INPUTLIST)
@@ -191,6 +193,8 @@ def write_success_to_log(file):
 
 
 def write_failure_to_log(file, reqcode):
+    if reqcode == -1:
+        reqcode = "Exception"
     message = "has a new source:\n" + CURRENT_TUPLE['url'] + "\nDownload FAILED\n" \
     + "Status code: " + str(reqcode) + "\nFor "\
     + CURRENT_TUPLE['file_id'] + \
@@ -248,41 +252,46 @@ def file_downloader(url, destination):
 
     # url="http://httpbin.org/headers" #for testing
     chunk_size = 1024
+    try:
+        req = request_session.get(url, headers=headers, stream=True, allow_redirects=True)
+        if req.status_code != 200:
+            if TQDM_AVAILABLE:
+                tqdm.write(BColors.FAIL + "Error downloading the URL: " + \
+                str(req.status_code) + BColors.ENDC)
+            else:
+                print(BColors.FAIL + "Error downloading the URL: " + url + \
+                str(req.status_code) + BColors.ENDC)
+            return req.status_code
 
-    req = request_session.get(url, headers=headers, stream=True, allow_redirects=True)
-    if req.status_code != 200:
+        myCLheader = 0
+        for key, value in req.headers.items():
+            if "content-length" in key:
+                mysize = (int(value)/1000000)
+                print("File size: " + str(mysize) + "MB")
+                myCLheader = int(value)
+
+        with open(destination, 'wb') as file_handler:
+            if TQDM_AVAILABLE:
+                # WARNING: if gfycat decides one day to stop giving content-length in headers... ouch
+                pbar = tqdm(unit="KB", total=myCLheader)
+            for chunk in req.iter_content(chunk_size=chunk_size):
+                if chunk: # filter out keep-alive new chunks
+                    pbar.update(len(chunk))
+                    file_handler.write(chunk)
         if TQDM_AVAILABLE:
-            tqdm.write(BColors.FAIL + "Error downloading the URL: " + \
-            str(req.status_code) + BColors.ENDC)
+            pbar.close()
+            tqdm.write(BColors.BOLD + "\nDownload of " + url + "\nfor " + CURRENT_TUPLE['parent_dir'] + \
+            "/" + CURRENT_TUPLE['file_id'] + " completed!" + BColors.ENDC)
         else:
-            print(BColors.FAIL + "Error downloading the URL: " + url + \
-            str(req.status_code) + BColors.ENDC)
-        return req.status_code
-
-    myCLheader = 0
-    for key, value in req.headers.items():
-        if "content-length" in key:
-            mysize = (int(value)/1000000)
-            print("File size: " + str(mysize) + "MB")
-            myCLheader = int(value)
-
-    with open(destination, 'wb') as file_handler:
-        if TQDM_AVAILABLE:
-            # WARNING: if gfycat decides one day to stop giving content-length in headers... ouch
-            pbar = tqdm(unit="KB", total=myCLheader)
-        for chunk in req.iter_content(chunk_size=chunk_size):
-            if chunk: # filter out keep-alive new chunks
-                pbar.update(len(chunk))
-                file_handler.write(chunk)
-    if TQDM_AVAILABLE:
-        pbar.close()
-        tqdm.write(BColors.BOLD + "\nDownload of " + CURRENT_TUPLE['parent_dir'] + \
-        "/" + CURRENT_TUPLE['file_id'] + " completed!" + BColors.ENDC)
-    else:
-        print(BColors.BOLD + "\nDownload of " + CURRENT_TUPLE['parent_dir'] + \
-        "/" + CURRENT_TUPLE['file_id'] + " completed!" + BColors.ENDC)
-    # return destination
-    return 0
+            print(BColors.BOLD + "\nDownload of " + url + "\nfor " + CURRENT_TUPLE['parent_dir'] + \
+            "/" + CURRENT_TUPLE['file_id'] + " completed!" + BColors.ENDC)
+        # return destination
+        return 0
+    except Exception as e:
+            print(BColors.FAIL + "\nDownload of " + url + "\nfor " + CURRENT_TUPLE['parent_dir'] + \
+            "/" + CURRENT_TUPLE['file_id'] + " FAILED!" + "\Exception: " + str(e)  + BColors.ENDC)
+        # return destination
+    return -1
 
 
 class BColors:
